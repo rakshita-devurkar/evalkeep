@@ -23,7 +23,8 @@ Version 0.1 is under construction. Working today:
 | --- | --- |
 | `evalsmith version` | ✅ |
 | `evalsmith init` | ✅ |
-| `evalsmith ingest` | planned |
+| `evalsmith ingest --validate-only` | ✅ |
+| `evalsmith ingest` (redact + store) | planned |
 | `evalsmith detect` | planned |
 | `evalsmith discover` | planned |
 | `evalsmith dataset build` | planned |
@@ -52,6 +53,63 @@ evalsmith.yaml        project configuration (commit this)
 
 and appends the state paths to `.gitignore`. **Approved tests and configuration
 belong in Git; raw traces, the database, caches and run outputs do not.**
+
+Then check a trace file against the schema:
+
+```bash
+uv run evalsmith ingest examples/refund-agent/traces.jsonl --validate-only
+```
+
+## Trace format
+
+Evalsmith reads newline-delimited JSON, one trace object per line. The smallest
+valid trace is three fields:
+
+```json
+{"trace_id": "trace-1042", "input": {"text": "Refund my latest order."}, "outcome": {"status": "failure"}}
+```
+
+A full trace adds the ordered interaction and the evidence that something went
+wrong:
+
+| Field | Meaning |
+| --- | --- |
+| `trace_id` | Unique, non-empty. Duplicates within a file are rejected. |
+| `input` | `text` and/or `messages` — at least one must be non-empty. |
+| `output` | Optional `text` and/or `messages`. |
+| `events` | Ordered `message`, `tool_call`, `tool_result` and `evaluation` events. |
+| `outcome` | `status` (`success`/`failure`/`error`/`unknown`), plus optional `feedback` and `evaluations`. |
+| `metadata` | `recorded_at`, `source`, `agent`, `model`, `tags`, and an open `extra` object. |
+
+The schema is strict on purpose. Unknown fields are rejected rather than
+ignored, so a typo like `trace-id` is reported instead of silently dropping
+data — and so the redactor knows every field it must scrub. Put arbitrary
+provider data under `metadata.extra`, the one open field, which redaction walks
+recursively.
+
+Events are validated as a sequence, not just individually: event IDs must be
+unique, timestamps must not go backwards, tool names must look like callable
+identifiers, and a `tool_result` cannot reference a `call_id` that no earlier
+`tool_call` opened.
+
+### Reporting
+
+Validation streams, so file size is not a limit — 100k traces validate in about
+2.4 seconds with a ~10 MB memory ceiling. Invalid records never stop the run;
+each one is reported and the rest keep going:
+
+```console
+$ evalsmith ingest traces.jsonl --validate-only --errors errors.jsonl
+line  kind          field          problem
+   2  json                         invalid JSON: Expecting value at column 33
+   3  duplicate_id                 trace_id 'trace-1' already appeared earlier in this file
+   4  schema        session_id     Extra inputs are not permitted (Unknown fields belong under 'metadata.extra'.)
+   5  schema        events.0.tool  String should match pattern '^[A-Za-z_][A-Za-z0-9_.-]*$'
+```
+
+`--errors PATH` writes one JSON object per issue, with `line`, `kind`,
+`message`, and where known `trace_id`, `field` and `hint`. Field paths index
+into your own document, so `events.0.tool` is a path you can actually follow.
 
 ## Exit codes
 
