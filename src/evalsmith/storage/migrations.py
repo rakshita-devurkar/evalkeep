@@ -59,6 +59,42 @@ MIGRATIONS: tuple[Migration, ...] = (
             "CREATE INDEX events_tool ON events(tool)",
         ),
     ),
+    Migration(
+        version=2,
+        name="failure candidates and signals",
+        statements=(
+            # UNIQUE on trace_id is the schema-level form of "one failure
+            # candidate per trace"; detection cannot create a second one.
+            """
+            CREATE TABLE failures (
+                failure_id  TEXT PRIMARY KEY,
+                trace_id    TEXT NOT NULL UNIQUE
+                            REFERENCES traces(trace_id) ON DELETE CASCADE,
+                status      TEXT NOT NULL,
+                origin      TEXT NOT NULL,
+                detected_at TEXT NOT NULL,
+                updated_at  TEXT NOT NULL,
+                reviewer    TEXT,
+                reason      TEXT
+            )
+            """,
+            "CREATE INDEX failures_status ON failures(status)",
+            """
+            CREATE TABLE failure_signals (
+                failure_id TEXT NOT NULL
+                           REFERENCES failures(failure_id) ON DELETE CASCADE,
+                position   INTEGER NOT NULL,
+                detector   TEXT NOT NULL,
+                kind       TEXT NOT NULL,
+                source     TEXT NOT NULL,
+                summary    TEXT NOT NULL,
+                evidence   TEXT NOT NULL,
+                PRIMARY KEY (failure_id, position)
+            )
+            """,
+            "CREATE INDEX failure_signals_kind ON failure_signals(kind)",
+        ),
+    ),
 )
 
 LATEST_VERSION = max(migration.version for migration in MIGRATIONS)

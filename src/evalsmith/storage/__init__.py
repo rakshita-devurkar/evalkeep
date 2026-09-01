@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from evalsmith.storage.failures import FailureStore, FailureSummary
 from evalsmith.storage.migrations import LATEST_VERSION, MIGRATIONS, Migration, apply_migrations
 from evalsmith.storage.store import (
     StoredTrace,
@@ -14,6 +15,8 @@ from evalsmith.storage.store import (
 __all__ = [
     "LATEST_VERSION",
     "MIGRATIONS",
+    "FailureStore",
+    "FailureSummary",
     "Migration",
     "StoreOutcome",
     "StoreResult",

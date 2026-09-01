@@ -293,3 +293,83 @@ def _trace_with_events(**overrides: Any) -> NormalizedTrace:
         ],
         **overrides,
     )
+
+
+class TestFailureStorage:
+    def _failure(self, trace_id: str = "trace-1") -> Any:
+        from evalsmith.detectors import Signal, SignalKind
+        from evalsmith.failures import Failure
+
+        return Failure.from_signals(
+            trace_id,
+            [
+                Signal(
+                    detector="explicit_status",
+                    kind=SignalKind.EXPLICIT_STATUS,
+                    source="outcome.status",
+                    summary="marked failed",
+                    evidence={"status": "failure"},
+                )
+            ],
+        )
+
+    def test_migration_two_creates_the_failure_tables(self, tmp_path: Path) -> None:
+        connection = sqlite3.connect(tmp_path / "db.sqlite")
+        apply_migrations(connection)
+        names = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        assert {"failures", "failure_signals"} <= names
+
+    def test_a_failure_round_trips_with_its_signals(self, store: TraceStore) -> None:
+        store.add(make_trace())
+        store.failures.save(self._failure())
+        loaded = store.failures.get_by_trace("trace-1")
+        assert loaded is not None
+        assert loaded.signals[0].evidence == {"status": "failure"}
+        assert loaded.signals[0].source == "outcome.status"
+
+    def test_saving_twice_replaces_signals_rather_than_appending(self, store: TraceStore) -> None:
+        store.add(make_trace())
+        failure = self._failure()
+        store.failures.save(failure)
+        store.failures.save(failure)
+        loaded = store.failures.get(failure.failure_id)
+        assert loaded is not None
+        assert len(loaded.signals) == 1
+
+    def test_one_failure_per_trace_is_enforced_by_the_schema(self, store: TraceStore) -> None:
+        from evalsmith.failures import Failure
+
+        store.add(make_trace())
+        store.failures.save(self._failure())
+        second = Failure.from_signals("trace-1", [])
+        second.failure_id = "fail-different"
+        with pytest.raises(sqlite3.IntegrityError):
+            store.failures.save(second)
+
+    def test_a_failure_cannot_outlive_its_trace(self, store: TraceStore) -> None:
+        store.add(make_trace())
+        store.failures.save(self._failure())
+        store._connection.execute("DELETE FROM traces WHERE trace_id = ?", ("trace-1",))
+        store._connection.commit()
+        assert store.failures.count() == 0
+        assert store._connection.execute("SELECT COUNT(*) FROM failure_signals").fetchone()[0] == 0
+
+    def test_a_failure_needs_a_stored_trace(self, store: TraceStore) -> None:
+        with pytest.raises(sqlite3.IntegrityError):
+            store.failures.save(self._failure("no-such-trace"))
+
+    def test_deleting_a_failure_removes_its_signals(self, store: TraceStore) -> None:
+        store.add(make_trace())
+        failure = self._failure()
+        store.failures.save(failure)
+        store.failures.delete(failure.failure_id)
+        assert store.failures.get(failure.failure_id) is None
+        assert store._connection.execute("SELECT COUNT(*) FROM failure_signals").fetchone()[0] == 0
+
+    def test_iterating_traces_streams_them_in_order(self, store: TraceStore) -> None:
+        for index in range(3):
+            store.add(make_trace(f"trace-{index}", input={"text": f"question {index}"}))
+        assert [t.trace_id for t in store.iter_traces()] == ["trace-0", "trace-1", "trace-2"]

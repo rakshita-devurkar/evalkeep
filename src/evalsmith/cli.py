@@ -17,10 +17,20 @@ from rich.table import Table
 
 from evalsmith import __version__
 from evalsmith.adapters import DEFAULT_ADAPTER, available_adapters
+from evalsmith.commands.detect_cmd import (
+    FailureDetail,
+    add_failure,
+    list_failures,
+    review_failure,
+    run_detection,
+    show_failure,
+)
 from evalsmith.commands.ingest_cmd import ingest_traces
 from evalsmith.commands.init_cmd import Action, initialize_project
 from evalsmith.commands.trace_cmd import list_traces, show_trace
+from evalsmith.detection import DetectionReport
 from evalsmith.errors import EvalsmithError, ExitCode
+from evalsmith.failures import FailureStatus
 from evalsmith.ingest import DEFAULT_SAMPLE_LIMIT, IngestMode, IngestReport
 from evalsmith.storage import StoredTrace
 
@@ -34,6 +44,10 @@ app = typer.Typer(
 )
 trace_app = typer.Typer(name="trace", help="Inspect stored traces.", no_args_is_help=True)
 app.add_typer(trace_app)
+failures_app = typer.Typer(
+    name="failures", help="Inspect and review failure candidates.", no_args_is_help=True
+)
+app.add_typer(failures_app)
 
 console = Console()
 err_console = Console(stderr=True)
@@ -265,6 +279,188 @@ def _status_markup(status: str) -> str:
     styles = {"failure": "red", "success": "green", "error": "yellow"}
     style = styles.get(status)
     return f"[{style}]{status}[/]" if style else f"[dim]{status}[/]"
+
+
+@app.command()
+def detect(project: Path = PROJECT_OPTION) -> None:
+    """Create evidence-backed failure candidates."""
+    report = _run(lambda: run_detection(project_root=project))
+    _render_detection(report)
+
+
+@failures_app.command("list")
+def failures_list(
+    project: Path = PROJECT_OPTION,
+    status: FailureStatus | None = typer.Option(None, "--status", help="Filter by status."),
+    limit: int = typer.Option(50, "--limit", min=1, help="Rows to show."),
+    offset: int = typer.Option(0, "--offset", min=0, help="Rows to skip."),
+) -> None:
+    """List failure candidates."""
+    listing = _run(
+        lambda: list_failures(project_root=project, status=status, limit=limit, offset=offset)
+    )
+    if not listing.summaries:
+        console.print("[dim]No failure candidates.[/]")
+        return
+
+    table = Table(box=None, pad_edge=False)
+    table.add_column("failure_id", style="cyan")
+    table.add_column("trace_id")
+    table.add_column("status")
+    table.add_column("evidence")
+    table.add_column("reviewer", style="dim")
+    for summary in listing.summaries:
+        evidence = ", ".join(summary.kinds) if summary.kinds else "[dim]none (manual)[/]"
+        table.add_row(
+            summary.failure_id,
+            summary.trace_id,
+            _failure_status_markup(summary.status),
+            evidence,
+            summary.reviewer or "",
+        )
+    console.print(table)
+
+    breakdown = ", ".join(
+        f"{count} {status.value}" for status, count in sorted(listing.counts.items())
+    )
+    console.print(f"\n[dim]{len(listing.summaries)} of {listing.total} ({breakdown})[/]")
+
+
+@failures_app.command("show")
+def failures_show(
+    identifier: str = typer.Argument(..., metavar="ID", help="Failure ID or trace ID."),
+    project: Path = PROJECT_OPTION,
+) -> None:
+    """Inspect the evidence behind one failure."""
+    detail = _run(lambda: show_failure(identifier, project_root=project))
+    _render_failure(detail)
+
+
+@failures_app.command("confirm")
+def failures_confirm(
+    identifier: str = typer.Argument(..., metavar="ID", help="Failure ID or trace ID."),
+    project: Path = PROJECT_OPTION,
+    reviewer: str | None = typer.Option(None, "--reviewer", help="Who is deciding."),
+    reason: str | None = typer.Option(None, "--reason", help="Why."),
+) -> None:
+    """Confirm a failure candidate is a real failure."""
+    failure = _run(
+        lambda: review_failure(
+            identifier,
+            FailureStatus.CONFIRMED,
+            project_root=project,
+            reviewer=reviewer,
+            reason=reason,
+        )
+    )
+    console.print(
+        f"[bold green]confirmed[/] {failure.failure_id} ({failure.trace_id}) by {failure.reviewer}"
+    )
+
+
+@failures_app.command("dismiss")
+def failures_dismiss(
+    identifier: str = typer.Argument(..., metavar="ID", help="Failure ID or trace ID."),
+    project: Path = PROJECT_OPTION,
+    reviewer: str | None = typer.Option(None, "--reviewer", help="Who is deciding."),
+    reason: str | None = typer.Option(None, "--reason", help="Why."),
+) -> None:
+    """Dismiss a failure candidate. The record is kept for audit."""
+    failure = _run(
+        lambda: review_failure(
+            identifier,
+            FailureStatus.DISMISSED,
+            project_root=project,
+            reviewer=reviewer,
+            reason=reason,
+        )
+    )
+    console.print(
+        f"[bold yellow]dismissed[/] {failure.failure_id} ({failure.trace_id}) by {failure.reviewer}"
+    )
+
+
+@failures_app.command("add")
+def failures_add(
+    trace_id: str = typer.Argument(..., help="Trace to mark as a failure."),
+    project: Path = PROJECT_OPTION,
+    reviewer: str | None = typer.Option(None, "--reviewer", help="Who is deciding."),
+    reason: str | None = typer.Option(None, "--reason", help="Why."),
+) -> None:
+    """Mark a trace as a failure by hand, with no detector evidence."""
+    failure = _run(
+        lambda: add_failure(trace_id, project_root=project, reviewer=reviewer, reason=reason)
+    )
+    console.print(
+        f"[bold green]added[/] {failure.failure_id} for {failure.trace_id} by {failure.reviewer}"
+    )
+
+
+def _failure_status_markup(status: FailureStatus) -> str:
+    styles = {
+        FailureStatus.CONFIRMED: "red",
+        FailureStatus.CANDIDATE: "yellow",
+        FailureStatus.DISMISSED: "dim",
+    }
+    return f"[{styles[status]}]{status.value}[/]"
+
+
+def _render_detection(report: DetectionReport) -> None:
+    summary = Table(box=None, pad_edge=False, show_header=False)
+    summary.add_column(style="bold")
+    summary.add_column(justify="right")
+    summary.add_row("traces examined", str(report.traces))
+    summary.add_row("failures", f"[red]{report.failures}[/]" if report.failures else "0")
+    summary.add_row("new", f"[green]{report.created}[/]")
+    if report.updated:
+        summary.add_row("updated", str(report.updated))
+    if report.unchanged:
+        summary.add_row("unchanged", str(report.unchanged))
+    if report.withdrawn:
+        summary.add_row("withdrawn", str(report.withdrawn))
+    if report.preserved_reviews:
+        summary.add_row("reviews kept", str(report.preserved_reviews))
+    summary.add_row("signals", str(report.signals))
+    console.print(summary)
+
+    if report.by_kind:
+        detail = ", ".join(
+            f"{kind.value} x{count}" for kind, count in sorted(report.by_kind.items())
+        )
+        console.print(f"[dim]{detail}[/]")
+    console.print("\nNext: [bold]evalsmith failures list[/]")
+
+
+def _render_failure(detail: FailureDetail) -> None:
+    failure = detail.failure
+    header = Table(box=None, pad_edge=False, show_header=False)
+    header.add_column(style="bold")
+    header.add_column()
+    header.add_row("failure_id", failure.failure_id)
+    header.add_row("trace_id", failure.trace_id)
+    header.add_row("status", _failure_status_markup(failure.status))
+    header.add_row("origin", failure.origin.value)
+    header.add_row("detected", failure.detected_at.isoformat())
+    if failure.reviewer:
+        header.add_row("reviewer", failure.reviewer)
+    if failure.reason:
+        header.add_row("reason", failure.reason)
+    console.print(header)
+
+    if failure.signals:
+        console.print("\n[bold]evidence[/]")
+        signals = Table(box=None, pad_edge=False)
+        signals.add_column("kind")
+        signals.add_column("source", style="magenta")
+        signals.add_column("detail")
+        for signal in failure.signals:
+            signals.add_row(signal.kind.value, signal.source, signal.summary)
+        console.print(signals)
+    else:
+        console.print("\n[dim]No detector evidence; this failure was added by hand.[/]")
+
+    console.print("\n[bold]trace[/]")
+    _render_trace(detail.trace)
 
 
 def _render_ingest(report: IngestReport) -> None:

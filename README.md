@@ -25,7 +25,8 @@ Version 0.1 is under construction. Working today:
 | `evalsmith init` | ✅ |
 | `evalsmith ingest` | ✅ |
 | `evalsmith trace list` / `trace show` | ✅ |
-| `evalsmith detect` | planned |
+| `evalsmith detect` | ✅ |
+| `evalsmith failures list` / `show` / `confirm` / `dismiss` / `add` | ✅ |
 | `evalsmith discover` | planned |
 | `evalsmith dataset build` | planned |
 | `evalsmith review` | planned |
@@ -63,6 +64,15 @@ uv run evalsmith ingest examples/refund-agent/traces.jsonl --dry-run        # ch
 uv run evalsmith ingest examples/refund-agent/traces.jsonl                  # redact and store
 uv run evalsmith trace list
 uv run evalsmith trace show trace-1042
+```
+
+Then find the failures in them:
+
+```bash
+uv run evalsmith detect
+uv run evalsmith failures list
+uv run evalsmith failures show trace-1042
+uv run evalsmith failures confirm trace-1042 --reason "refunded the oldest order"
 ```
 
 ## Trace format
@@ -149,10 +159,61 @@ Redaction is deterministic and uses fixed placeholders rather than hashes of the
 original, so two customers' email addresses collapse to the same value — which
 is exactly what clustering wants.
 
+## Failure detection
+
+`evalsmith detect` runs every detector over every stored trace and records what
+they found. Detectors report **evidence**, never inference — a signal points at
+something a person or an evaluator actually recorded:
+
+| Detector | Evidence |
+| --- | --- |
+| `explicit_status` | `outcome.status` is `failure` or `error` |
+| `negative_feedback` | `outcome.feedback.rating` is `negative` |
+| `failed_evaluator` | an evaluation recorded `passed: false`, in the outcome or in an event |
+
+Every signal keeps a path back into the trace (`outcome.evaluations.0`), so a
+reviewer can check the claim rather than take it on trust.
+
+**Signals are counted, not scored.** A trace with three signals is better
+documented than one with a single signal — it is not "more likely" to be a
+failure, and Evalsmith will not print a number implying otherwise. In the same
+spirit, `negative_feedback` fires only on an explicit `negative` rating: a bare
+numeric score arrives without its scale, and thresholding it would be a guess
+dressed up as evidence.
+
+### Detection is idempotent
+
+Re-running `detect` is always safe, because of four rules:
+
+- A failure's ID is a pure function of its trace ID, so a second pass addresses
+  the same record instead of creating another. One failure per trace is enforced
+  by a `UNIQUE` constraint, not just by convention.
+- Signals are **derived** — every pass recomputes and replaces them, so adding or
+  changing a detector refreshes the evidence on existing failures.
+- A review is **not** derived. Once you confirm or dismiss a failure, detection
+  updates its signals and leaves your decision, name and reason alone.
+- An unreviewed candidate whose evidence has since disappeared is withdrawn.
+  Nothing human is lost, because nothing human was there. Reviewed and manually
+  added failures are never withdrawn.
+
+### Review
+
+```bash
+evalsmith failures confirm <id> --reason "refunded the oldest order"
+evalsmith failures dismiss <id> --reason "synthetic test data"
+evalsmith failures add trace-1060 --reason "detectors cannot see this one"
+```
+
+`confirm`, `dismiss` and `add` all record who decided and when. Dismissed
+failures are kept for audit rather than deleted, and `add` covers the case
+detection cannot reach: a trace that is wrong with no recorded evidence saying
+so. Every command accepts either a failure ID or the trace ID it came from.
+
 ## Storage
 
-Ingested traces go into SQLite at `.evalsmith/database.db`, applied through
-versioned migrations recorded in a `schema_migrations` table. The redacted trace
+Ingested traces and their failure records go into SQLite at
+`.evalsmith/database.db`, applied through versioned migrations recorded in a
+`schema_migrations` table. The redacted trace
 is stored whole as JSON and is the source of truth; its events are also written
 as rows in the same transaction, as a derived index so detection can ask which
 traces called `refund_order` without deserializing everything.

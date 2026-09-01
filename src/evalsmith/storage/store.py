@@ -25,6 +25,7 @@ from typing import Any
 from evalsmith.errors import CommandError
 from evalsmith.hashing import content_hash
 from evalsmith.redaction import RedactionSummary
+from evalsmith.storage.failures import FailureStore
 from evalsmith.storage.migrations import apply_migrations
 from evalsmith.trace import NormalizedTrace, ToolCallEvent, ToolResultEvent
 
@@ -100,6 +101,11 @@ class TraceStore:
             yield cls(connection)
         finally:
             connection.close()
+
+    @property
+    def failures(self) -> FailureStore:
+        """Failure candidates, sharing this store's connection."""
+        return FailureStore(self._connection)
 
     # -- writing ---------------------------------------------------------
 
@@ -219,6 +225,14 @@ class TraceStore:
             )
             for row in self._connection.execute(query, parameters)
         ]
+
+    def iter_traces(self) -> Iterator[NormalizedTrace]:
+        """Stream every stored trace in ingest order, without loading them all."""
+        cursor = self._connection.execute(
+            "SELECT payload FROM traces ORDER BY ingested_at, trace_id"
+        )
+        for row in cursor:
+            yield NormalizedTrace.model_validate_json(row["payload"])
 
     def count(self, *, status: str | None = None) -> int:
         if status is None:
