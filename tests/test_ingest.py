@@ -13,7 +13,7 @@ from evalsmith.adapters import IssueKind, JsonlAdapter
 from evalsmith.cli import app
 from evalsmith.commands.ingest_cmd import ingest_traces
 from evalsmith.errors import CommandError, ExitCode
-from evalsmith.ingest import validate_file
+from evalsmith.ingest import ingest_file
 
 MINIMAL: dict[str, Any] = {
     "trace_id": "trace-1",
@@ -41,19 +41,19 @@ def traces_file(tmp_path: Path) -> Path:
 class TestValidFile:
     def test_counts_every_record(self, traces_file: Path) -> None:
         write_traces(traces_file, trace_line(trace_id="t1"), trace_line(trace_id="t2"))
-        report = validate_file(traces_file, JsonlAdapter())
+        report = ingest_file(traces_file, JsonlAdapter())
         assert (report.records, report.valid, report.invalid) == (2, 2, 0)
         assert report.ok
         assert report.exit_code is ExitCode.OK
 
     def test_the_bundled_example_validates_cleanly(self) -> None:
-        report = validate_file(EXAMPLE, JsonlAdapter())
+        report = ingest_file(EXAMPLE, JsonlAdapter())
         assert report.records == 5
         assert report.invalid == 0
 
     def test_an_empty_file_is_valid_and_empty(self, traces_file: Path) -> None:
         traces_file.write_text("")
-        report = validate_file(traces_file, JsonlAdapter())
+        report = ingest_file(traces_file, JsonlAdapter())
         assert (report.records, report.valid) == (0, 0)
         assert report.ok
 
@@ -61,23 +61,23 @@ class TestValidFile:
 class TestDuplicateIds:
     def test_the_second_occurrence_is_rejected(self, traces_file: Path) -> None:
         write_traces(traces_file, trace_line(trace_id="t1"), trace_line(trace_id="t1"))
-        report = validate_file(traces_file, JsonlAdapter())
+        report = ingest_file(traces_file, JsonlAdapter())
         assert (report.valid, report.invalid, report.duplicate_ids) == (1, 1, 1)
         assert report.sample[0].kind is IssueKind.DUPLICATE_ID
         assert report.sample[0].line == 2
 
     def test_a_third_copy_is_also_rejected(self, traces_file: Path) -> None:
         write_traces(traces_file, *[trace_line(trace_id="t1")] * 3)
-        report = validate_file(traces_file, JsonlAdapter())
+        report = ingest_file(traces_file, JsonlAdapter())
         assert (report.valid, report.duplicate_ids) == (1, 2)
 
     def test_trimming_makes_ids_collide(self, traces_file: Path) -> None:
         write_traces(traces_file, trace_line(trace_id="t1"), trace_line(trace_id="  t1  "))
-        assert validate_file(traces_file, JsonlAdapter()).duplicate_ids == 1
+        assert ingest_file(traces_file, JsonlAdapter()).duplicate_ids == 1
 
     def test_distinct_ids_do_not_collide(self, traces_file: Path) -> None:
         write_traces(traces_file, trace_line(trace_id="t1"), trace_line(trace_id="t2"))
-        assert validate_file(traces_file, JsonlAdapter()).duplicate_ids == 0
+        assert ingest_file(traces_file, JsonlAdapter()).duplicate_ids == 0
 
     def test_an_invalid_record_does_not_reserve_its_id(self, traces_file: Path) -> None:
         write_traces(
@@ -85,7 +85,7 @@ class TestDuplicateIds:
             json.dumps({"trace_id": "t1", "input": {}}),
             trace_line(trace_id="t1"),
         )
-        report = validate_file(traces_file, JsonlAdapter())
+        report = ingest_file(traces_file, JsonlAdapter())
         assert (report.valid, report.duplicate_ids) == (1, 0)
 
 
@@ -98,7 +98,7 @@ class TestErrorFile:
             json.dumps({"trace_id": "t3", "input": {}}),
         )
         errors = tmp_path / "errors.jsonl"
-        report = validate_file(traces_file, JsonlAdapter(), error_path=errors)
+        report = ingest_file(traces_file, JsonlAdapter(), error_path=errors)
 
         written = [json.loads(line) for line in errors.read_text().splitlines()]
         assert len(written) == report.issue_count
@@ -108,7 +108,7 @@ class TestErrorFile:
     def test_creates_the_parent_directory(self, traces_file: Path, tmp_path: Path) -> None:
         write_traces(traces_file, "{not json")
         errors = tmp_path / "nested" / "dir" / "errors.jsonl"
-        validate_file(traces_file, JsonlAdapter(), error_path=errors)
+        ingest_file(traces_file, JsonlAdapter(), error_path=errors)
         assert errors.is_file()
 
     def test_a_clean_file_writes_an_empty_error_file(
@@ -116,7 +116,7 @@ class TestErrorFile:
     ) -> None:
         write_traces(traces_file, trace_line())
         errors = tmp_path / "errors.jsonl"
-        validate_file(traces_file, JsonlAdapter(), error_path=errors)
+        ingest_file(traces_file, JsonlAdapter(), error_path=errors)
         assert errors.read_text() == ""
 
     def test_an_unwritable_error_path_is_a_command_error(
@@ -126,37 +126,42 @@ class TestErrorFile:
         blocker = tmp_path / "blocker"
         blocker.write_text("")
         with pytest.raises(CommandError):
-            validate_file(traces_file, JsonlAdapter(), error_path=blocker / "errors.jsonl")
+            ingest_file(traces_file, JsonlAdapter(), error_path=blocker / "errors.jsonl")
 
 
 class TestSampling:
     def test_the_sample_is_bounded_and_the_count_is_not(self, traces_file: Path) -> None:
         write_traces(traces_file, *["{not json"] * 50)
-        report = validate_file(traces_file, JsonlAdapter(), sample_limit=5)
+        report = ingest_file(traces_file, JsonlAdapter(), sample_limit=5)
         assert len(report.sample) == 5
         assert report.issue_count == 50
         assert report.truncated == 45
 
     def test_nothing_is_truncated_when_it_all_fits(self, traces_file: Path) -> None:
         write_traces(traces_file, "{not json")
-        assert validate_file(traces_file, JsonlAdapter()).truncated == 0
+        assert ingest_file(traces_file, JsonlAdapter()).truncated == 0
 
 
 class TestFileErrors:
     def test_a_missing_file_is_a_command_error(self, tmp_path: Path) -> None:
         with pytest.raises(CommandError, match="does not exist"):
-            validate_file(tmp_path / "nope.jsonl", JsonlAdapter())
+            ingest_file(tmp_path / "nope.jsonl", JsonlAdapter())
 
     def test_a_directory_is_a_command_error(self, tmp_path: Path) -> None:
         with pytest.raises(CommandError, match="is a directory"):
-            validate_file(tmp_path, JsonlAdapter())
+            ingest_file(tmp_path, JsonlAdapter())
 
 
 class TestIngestCommand:
-    def test_storing_is_refused_until_it_exists(self, traces_file: Path) -> None:
+    def test_storing_needs_an_initialized_project(self, traces_file: Path, tmp_path: Path) -> None:
         write_traces(traces_file, trace_line())
-        with pytest.raises(CommandError, match="not implemented yet"):
-            ingest_traces(traces_file, validate_only=False)
+        with pytest.raises(CommandError, match=r"evalsmith\.yaml"):
+            ingest_traces(traces_file, project_root=tmp_path)
+
+    def test_validate_only_and_dry_run_cannot_be_combined(self, traces_file: Path) -> None:
+        write_traces(traces_file, trace_line())
+        with pytest.raises(CommandError, match="cannot be combined"):
+            ingest_traces(traces_file, validate_only=True, dry_run=True)
 
     def test_an_unknown_format_is_a_command_error(self, traces_file: Path) -> None:
         write_traces(traces_file, trace_line())

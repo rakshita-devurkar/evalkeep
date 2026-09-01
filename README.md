@@ -23,8 +23,8 @@ Version 0.1 is under construction. Working today:
 | --- | --- |
 | `evalsmith version` | ✅ |
 | `evalsmith init` | ✅ |
-| `evalsmith ingest --validate-only` | ✅ |
-| `evalsmith ingest` (redact + store) | planned |
+| `evalsmith ingest` | ✅ |
+| `evalsmith trace list` / `trace show` | ✅ |
 | `evalsmith detect` | planned |
 | `evalsmith discover` | planned |
 | `evalsmith dataset build` | planned |
@@ -45,7 +45,8 @@ everything else alone. It creates:
 
 ```
 evalsmith.yaml        project configuration (commit this)
-.evalsmith/data/      redacted traces and intermediate artifacts
+.evalsmith/database.db  redacted traces and events
+.evalsmith/data/      intermediate artifacts
 .evalsmith/cache/     analyzer and embedding caches
 .evalsmith/runs/      raw Promptfoo run outputs
 .evalsmith/exports/   generated export files
@@ -54,10 +55,14 @@ evalsmith.yaml        project configuration (commit this)
 and appends the state paths to `.gitignore`. **Approved tests and configuration
 belong in Git; raw traces, the database, caches and run outputs do not.**
 
-Then check a trace file against the schema:
+Then ingest some traces:
 
 ```bash
-uv run evalsmith ingest examples/refund-agent/traces.jsonl --validate-only
+uv run evalsmith ingest examples/refund-agent/traces.jsonl --validate-only  # check the file
+uv run evalsmith ingest examples/refund-agent/traces.jsonl --dry-run        # check against storage
+uv run evalsmith ingest examples/refund-agent/traces.jsonl                  # redact and store
+uv run evalsmith trace list
+uv run evalsmith trace show trace-1042
 ```
 
 ## Trace format
@@ -110,6 +115,62 @@ line  kind          field          problem
 `--errors PATH` writes one JSON object per issue, with `line`, `kind`,
 `message`, and where known `trace_id`, `field` and `hint`. Field paths index
 into your own document, so `events.0.tool` is a path you can actually follow.
+
+## Redaction
+
+Redaction runs **in memory, between validation and storage**. There is no code
+path that writes a raw trace, so the database, exports and anything later sent
+to an analyzer only ever hold redacted values.
+
+| Rule | Catches | Replaced with |
+| --- | --- | --- |
+| `emails` | Email addresses | `[REDACTED:email]` |
+| `phone_numbers` | Separator-formatted and E.164 numbers | `[REDACTED:phone]` |
+| `payment_cards` | 13–19 digit runs that pass a Luhn check | `[REDACTED:payment_card]` |
+| `token_prefixes` | `sk-`, `ghp_`, `xox*-`, `AKIA`, `AIza`, JWTs, `Bearer …` | `[REDACTED:token]` |
+| `secret_field_names` | Values under keys like `api_key`, `password`, `authorization` | `[REDACTED:secret_field]` |
+
+Toggle any rule in `evalsmith.yaml`. The rules err toward over-redaction — a
+redacted order number is an inconvenience, a stored API key is an incident —
+with two deliberate exceptions that keep the data usable:
+
+- **Identifiers are never rewritten.** `trace_id`, `event_id`, `call_id` and
+  `tool` survive verbatim; scrubbing them would break the links the whole
+  pipeline runs on.
+- **Secret *field names* only redact strings and containers.** `token_count: 512`
+  is a number, not a credential.
+
+Luhn does real work here: `4111 1111 1111 1111` is replaced, while the 13-digit
+order number `1234567890123` and the total `$24.00` are left alone. Phone numbers
+are matched before cards, because a phone sitting next to a card forms a single
+digit run in which Luhn alone cannot say which digits belong to which.
+
+Redaction is deterministic and uses fixed placeholders rather than hashes of the
+original, so two customers' email addresses collapse to the same value — which
+is exactly what clustering wants.
+
+## Storage
+
+Ingested traces go into SQLite at `.evalsmith/database.db`, applied through
+versioned migrations recorded in a `schema_migrations` table. The redacted trace
+is stored whole as JSON and is the source of truth; its events are also written
+as rows in the same transaction, as a derived index so detection can ask which
+traces called `refund_order` without deserializing everything.
+
+**A trace ID is never silently overwritten.** Storing one that already exists is
+resolved by content, using a `sha256` hash of the interaction — input, output,
+outcome and events, deliberately excluding the trace ID, all metadata and
+timestamps, so the same interaction re-exported later hashes the same:
+
+| Situation | What happens | Exit code |
+| --- | --- | --- |
+| New ID, new content | Stored | 0 |
+| Same ID, same content | Skipped — re-ingesting a file is safe | 0 |
+| Same ID, **different** content | Refused and reported as a conflict | 1 |
+| New ID, same content | Skipped, reported as a duplicate interaction | 0 |
+
+Use `--dry-run` to see exactly what an ingest would do, including which traces
+are already known, without writing anything.
 
 ## Exit codes
 

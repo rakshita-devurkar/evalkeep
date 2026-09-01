@@ -1,0 +1,295 @@
+"""Storage: migrations, transactions, event order and duplicate safety (guide 8C)."""
+
+from __future__ import annotations
+
+import sqlite3
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from evalsmith.errors import CommandError
+from evalsmith.hashing import canonical_content, content_hash
+from evalsmith.redaction import RedactionRule, RedactionSummary
+from evalsmith.storage import LATEST_VERSION, MIGRATIONS, StoreResult, TraceStore, apply_migrations
+from evalsmith.trace import NormalizedTrace
+
+
+def make_trace(trace_id: str = "trace-1", **overrides: Any) -> NormalizedTrace:
+    payload: dict[str, Any] = {
+        "trace_id": trace_id,
+        "input": {"text": "Refund my latest order."},
+        "outcome": {"status": "failure"},
+    }
+    payload.update(overrides)
+    return NormalizedTrace.model_validate(payload)
+
+
+@pytest.fixture
+def store(tmp_path: Path) -> Iterator[TraceStore]:
+    with TraceStore.open(tmp_path / "db" / "database.db") as opened:
+        yield opened
+
+
+class TestMigrations:
+    def test_a_new_database_reaches_the_latest_version(self, tmp_path: Path) -> None:
+        connection = sqlite3.connect(tmp_path / "db.sqlite")
+        applied = apply_migrations(connection)
+        assert [m.version for m in applied] == [m.version for m in MIGRATIONS]
+        row = connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
+        assert row[0] == LATEST_VERSION
+
+    def test_applying_twice_is_a_no_op(self, tmp_path: Path) -> None:
+        connection = sqlite3.connect(tmp_path / "db.sqlite")
+        apply_migrations(connection)
+        assert apply_migrations(connection) == []
+
+    def test_creates_the_documented_tables(self, tmp_path: Path) -> None:
+        connection = sqlite3.connect(tmp_path / "db.sqlite")
+        apply_migrations(connection)
+        names = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        assert {"traces", "events", "schema_migrations"} <= names
+
+    def test_a_newer_database_is_refused(self, tmp_path: Path) -> None:
+        connection = sqlite3.connect(tmp_path / "db.sqlite")
+        apply_migrations(connection)
+        connection.execute(
+            "INSERT INTO schema_migrations VALUES (?, ?, ?)",
+            (LATEST_VERSION + 5, "from the future", "2030-01-01T00:00:00Z"),
+        )
+        connection.commit()
+        with pytest.raises(CommandError, match="only understands"):
+            apply_migrations(connection)
+
+    def test_a_failing_migration_leaves_no_partial_state(self, tmp_path: Path) -> None:
+        """The version row and the schema change commit together, or not at all."""
+        connection = sqlite3.connect(tmp_path / "db.sqlite")
+        connection.execute("CREATE TABLE traces (blocking TEXT)")
+        connection.commit()
+        with pytest.raises(sqlite3.Error):
+            apply_migrations(connection)
+        row = connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
+        assert row[0] is None
+
+
+class TestForeignKeys:
+    def test_events_are_removed_with_their_trace(self, store: TraceStore) -> None:
+        store.add(_trace_with_events())
+        assert store.event_count() == 2
+        store._connection.execute("DELETE FROM traces WHERE trace_id = ?", ("trace-1",))
+        store._connection.commit()
+        assert store.event_count() == 0
+
+    def test_an_orphan_event_is_rejected(self, store: TraceStore) -> None:
+        with pytest.raises(sqlite3.IntegrityError), store._connection:
+            store._connection.execute(
+                "INSERT INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                ("no-such-trace", 0, "e1", "message", None, None, None, "{}"),
+            )
+
+
+class TestStoring:
+    def test_a_new_trace_is_stored(self, store: TraceStore) -> None:
+        outcome = store.add(make_trace())
+        assert outcome.result is StoreResult.STORED
+        assert outcome.written
+        assert store.count() == 1
+
+    def test_the_stored_trace_round_trips(self, store: TraceStore) -> None:
+        original = _trace_with_events()
+        store.add(original)
+        stored = store.get("trace-1")
+        assert stored is not None
+        assert stored.trace == original
+
+    def test_events_come_back_in_recorded_order(self, store: TraceStore) -> None:
+        store.add(_trace_with_events())
+        rows = store._connection.execute(
+            "SELECT position, event_id FROM events WHERE trace_id = ? ORDER BY position",
+            ("trace-1",),
+        ).fetchall()
+        assert [row["event_id"] for row in rows] == ["e1", "e2"]
+        stored = store.get("trace-1")
+        assert stored is not None
+        assert [event.event_id for event in stored.trace.events] == ["e1", "e2"]
+
+    def test_tool_events_are_indexed_for_detection(self, store: TraceStore) -> None:
+        store.add(_trace_with_events())
+        rows = store._connection.execute(
+            "SELECT trace_id, type FROM events WHERE tool = ? ORDER BY position",
+            ("refund_order",),
+        ).fetchall()
+        assert [row["type"] for row in rows] == ["tool_call", "tool_result"]
+        assert {row["trace_id"] for row in rows} == {"trace-1"}
+
+    def test_the_redaction_summary_is_kept_with_the_trace(self, store: TraceStore) -> None:
+        summary = RedactionSummary()
+        summary.record(RedactionRule.EMAIL, 2)
+        store.add(make_trace(), redaction=summary)
+        stored = store.get("trace-1")
+        assert stored is not None
+        assert stored.redactions == 2
+        assert stored.redaction_summary == {"email": 2}
+
+    def test_an_unknown_trace_id_reads_as_none(self, store: TraceStore) -> None:
+        assert store.get("nope") is None
+
+
+class TestNeverOverwrite:
+    def test_the_same_trace_twice_is_a_no_op(self, store: TraceStore) -> None:
+        store.add(make_trace())
+        outcome = store.add(make_trace())
+        assert outcome.result is StoreResult.ALREADY_STORED
+        assert store.count() == 1
+
+    def test_the_same_id_with_different_content_is_refused(self, store: TraceStore) -> None:
+        store.add(make_trace())
+        outcome = store.add(make_trace(input={"text": "Something else entirely."}))
+        assert outcome.result is StoreResult.ID_CONFLICT
+        assert not outcome.written
+
+    def test_a_refused_conflict_leaves_the_stored_trace_intact(self, store: TraceStore) -> None:
+        store.add(make_trace())
+        store.add(make_trace(input={"text": "Something else entirely."}))
+        stored = store.get("trace-1")
+        assert stored is not None
+        assert stored.trace.input.text == "Refund my latest order."
+
+    def test_the_same_content_under_a_new_id_is_reported(self, store: TraceStore) -> None:
+        store.add(make_trace("trace-1"))
+        outcome = store.add(make_trace("trace-2"))
+        assert outcome.result is StoreResult.CONTENT_DUPLICATE
+        assert outcome.existing_trace_id == "trace-1"
+        assert store.count() == 1
+
+    def test_classify_writes_nothing(self, store: TraceStore) -> None:
+        assert store.classify(make_trace()).result is StoreResult.STORED
+        assert store.count() == 0
+
+
+class TestListing:
+    def test_lists_what_was_stored(self, store: TraceStore) -> None:
+        store.add(_trace_with_events())
+        store.add(make_trace("trace-2", input={"text": "Where is my order?"}))
+        summaries = store.list()
+        assert [s.trace_id for s in summaries] == ["trace-1", "trace-2"]
+        assert summaries[0].events == 2
+
+    def test_filters_by_status(self, store: TraceStore) -> None:
+        store.add(make_trace("trace-1"))
+        store.add(make_trace("trace-2", input={"text": "ok"}, outcome={"status": "success"}))
+        assert [s.trace_id for s in store.list(status="success")] == ["trace-2"]
+        assert store.count(status="failure") == 1
+
+    def test_paginates(self, store: TraceStore) -> None:
+        for index in range(5):
+            store.add(make_trace(f"trace-{index}", input={"text": f"question {index}"}))
+        page = store.list(limit=2, offset=2)
+        assert len(page) == 2
+        assert store.count() == 5
+
+    def test_an_empty_store_lists_nothing(self, store: TraceStore) -> None:
+        assert store.list() == []
+
+
+class TestOpening:
+    def test_creates_the_parent_directory(self, tmp_path: Path) -> None:
+        path = tmp_path / "deeply" / "nested" / "database.db"
+        with TraceStore.open(path):
+            pass
+        assert path.is_file()
+
+    def test_an_unusable_path_is_a_command_error(self, tmp_path: Path) -> None:
+        blocker = tmp_path / "blocker"
+        blocker.write_text("")
+        with (
+            pytest.raises(CommandError, match="Could not open the database"),
+            TraceStore.open(blocker / "database.db"),
+        ):
+            pass
+
+
+class TestContentHash:
+    def test_is_stable_across_calls(self) -> None:
+        assert content_hash(make_trace()) == content_hash(make_trace())
+
+    def test_ignores_the_trace_id(self) -> None:
+        assert content_hash(make_trace("trace-1")) == content_hash(make_trace("trace-2"))
+
+    def test_ignores_metadata_and_timestamps(self) -> None:
+        bare = _trace_with_events()
+        annotated = _trace_with_events(
+            metadata={"source": "elsewhere", "recorded_at": "2027-01-01T00:00:00Z"}
+        )
+        assert content_hash(bare) == content_hash(annotated)
+
+    def test_ignores_event_and_call_identifiers(self) -> None:
+        renamed = _trace_with_events()
+        payload = renamed.model_dump(mode="json")
+        payload["events"][0]["event_id"] = "renamed"
+        payload["events"][0]["call_id"] = "renamed-call"
+        payload["events"][1]["call_id"] = "renamed-call"
+        assert content_hash(NormalizedTrace.model_validate(payload)) == content_hash(renamed)
+
+    def test_notices_a_different_question(self) -> None:
+        assert content_hash(make_trace()) != content_hash(
+            make_trace(input={"text": "Something else."})
+        )
+
+    def test_notices_a_different_tool_argument(self) -> None:
+        one = _trace_with_events()
+        payload = one.model_dump(mode="json")
+        payload["events"][0]["arguments"] = {"order_id": "order-Z"}
+        assert content_hash(NormalizedTrace.model_validate(payload)) != content_hash(one)
+
+    def test_notices_a_different_outcome(self) -> None:
+        assert content_hash(make_trace()) != content_hash(make_trace(outcome={"status": "success"}))
+
+    def test_notices_reordered_events(self) -> None:
+        one = _trace_with_events()
+        payload = one.model_dump(mode="json")
+        payload["events"] = [
+            {"event_id": "e1", "type": "message", "role": "user", "content": "a"},
+            {"event_id": "e2", "type": "message", "role": "assistant", "content": "b"},
+        ]
+        reordered = dict(payload)
+        reordered["events"] = list(reversed(payload["events"]))
+        assert content_hash(NormalizedTrace.model_validate(payload)) != content_hash(
+            NormalizedTrace.model_validate(reordered)
+        )
+
+    def test_is_algorithm_labelled(self) -> None:
+        assert content_hash(make_trace()).startswith("sha256:")
+
+    def test_the_canonical_form_excludes_identity(self) -> None:
+        canonical = canonical_content(_trace_with_events())
+        assert set(canonical) == {"input", "output", "outcome", "events"}
+        assert all("event_id" not in event for event in canonical["events"])
+
+
+def _trace_with_events(**overrides: Any) -> NormalizedTrace:
+    return make_trace(
+        events=[
+            {
+                "event_id": "e1",
+                "type": "tool_call",
+                "tool": "refund_order",
+                "call_id": "c1",
+                "arguments": {"order_id": "order-A"},
+                "timestamp": "2026-08-14T09:12:06Z",
+            },
+            {
+                "event_id": "e2",
+                "type": "tool_result",
+                "tool": "refund_order",
+                "call_id": "c1",
+                "result": {"status": "refunded"},
+                "timestamp": "2026-08-14T09:12:07Z",
+            },
+        ],
+        **overrides,
+    )

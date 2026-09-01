@@ -26,6 +26,8 @@ class IssueKind(StrEnum):
     JSON = "json"
     SCHEMA = "schema"
     DUPLICATE_ID = "duplicate_id"
+    #: The trace ID is already stored with different content.
+    ID_CONFLICT = "id_conflict"
 
 
 @dataclass(frozen=True)
