@@ -27,7 +27,8 @@ Version 0.1 is under construction. Working today:
 | `evalsmith trace list` / `trace show` | ✅ |
 | `evalsmith detect` | ✅ |
 | `evalsmith failures list` / `show` / `confirm` / `dismiss` / `add` | ✅ |
-| `evalsmith discover` | planned |
+| `evalsmith analyze` / `failures label` | ✅ |
+| `evalsmith discover` (clustering) | planned |
 | `evalsmith dataset build` | planned |
 | `evalsmith review` | planned |
 | `evalsmith export` | planned |
@@ -73,6 +74,18 @@ uv run evalsmith detect
 uv run evalsmith failures list
 uv run evalsmith failures show trace-1042
 uv run evalsmith failures confirm trace-1042 --reason "refunded the oldest order"
+```
+
+Then describe them, so similar failures can be grouped:
+
+```bash
+# With no API key, label by hand — this is a first-class path, not a fallback:
+uv run evalsmith failures label trace-1042 \
+  --type wrong_tool_argument --component tool_arguments --severity high \
+  --summary "Refunded the oldest order instead of the newest."
+
+# With analyzer.provider set in evalsmith.yaml:
+uv run evalsmith analyze
 ```
 
 ## Trace format
@@ -208,6 +221,63 @@ evalsmith failures add trace-1060 --reason "detectors cannot see this one"
 failures are kept for audit rather than deleted, and `add` covers the case
 detection cannot reach: a trace that is wrong with no recorded evidence saying
 so. Every command accepts either a failure ID or the trace ID it came from.
+
+## Failure analysis
+
+Detection says *that* a trace failed. Analysis says *what kind* of failure it is,
+which is what makes grouping possible in the next stage. Each analysis records a
+`failure_type`, a `component`, a `severity` and a one-sentence summary.
+
+The vocabularies are closed on purpose. Free text does not cluster: "wrong order
+id", "refunded the wrong order" and "bad tool arg" are one failure family that
+three analysts would name three different ways.
+
+### Analysis works with no API key
+
+`analyzer.provider` defaults to `manual`, which is **the absence of a provider,
+not a provider that guesses**. Evalsmith produces a fully labelled dataset
+offline; it just asks a person for the labels:
+
+```bash
+evalsmith failures label <id> --type wrong_tool_argument \
+  --component tool_arguments --severity high --summary "..."
+```
+
+| Provider | What it does |
+| --- | --- |
+| `manual` (default) | No automatic analysis; label by hand |
+| `anthropic` | Claude via the Messages API, constrained to the schema. Needs `ANTHROPIC_API_KEY` and `pip install 'evalsmith[anthropic]'` |
+| `stub` | Deterministic placeholder for offline development; its output is stamped `stub` so nothing mistakes it for judgement |
+
+### Caching, and why the key has three parts
+
+Answers are cached under `.evalsmith/cache/`, keyed by the **trace content**,
+**which analyst** produced it, and **which prompt version** was asked. Change any
+one and the key changes, so a prompt edit or a model swap never serves a stale
+label — and re-running after a database reset costs nothing. Editing the prompt
+text without bumping `FAILURE_ANALYSIS_PROMPT_VERSION` is a bug, not a
+convenience: it would serve cached answers to a question you no longer ask.
+
+The cache is a speed and money optimisation, never a source of truth. Deleting
+it loses nothing the database does not already hold.
+
+### What analysis will not do
+
+- **It will not overwrite a hand-written label.** `--reanalyze` refreshes
+  *machine* analyses; replacing something a person wrote needs the separate
+  `--overwrite-manual`. Refreshing model output after a prompt change is
+  routine, and must not quietly discard human work along the way.
+- **It will not abandon a run over one bad answer.** A provider error is counted
+  and reported; the remaining failures are still analyzed.
+- **It will not store what it cannot validate.** A response outside the closed
+  vocabulary is an error, not a new category.
+- **It will not store unredacted text.** The model only ever sees a redacted
+  trace, but its response is redacted *again* before storage — a model can quote
+  its input, and "it only saw redacted text" is an argument, not a guarantee.
+  The same applies to summaries you type by hand.
+
+Every analysis keeps the provider's raw response for audit, so a surprising
+label can be checked against what the model actually said.
 
 ## Storage
 

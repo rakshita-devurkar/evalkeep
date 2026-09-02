@@ -54,6 +54,19 @@ class RedactionConfig(BaseModel):
     secret_field_names: bool = True
 
 
+class AnalyzerConfig(BaseModel):
+    """Which provider describes failures, if any.
+
+    ``manual`` is the default: Evalsmith runs fully offline and failures are
+    labelled by hand until a provider is configured.
+    """
+
+    provider: str = "manual"
+    model: str = "claude-opus-5"
+    effort: str = "medium"
+    max_tokens: int = 16000
+
+
 class ProjectConfig(BaseModel):
     """The contents of ``evalsmith.yaml``."""
 
@@ -61,6 +74,7 @@ class ProjectConfig(BaseModel):
     project_name: str = "evalsmith-project"
     state_dir: str = STATE_DIRNAME
     redaction: RedactionConfig = Field(default_factory=RedactionConfig)
+    analyzer: AnalyzerConfig = Field(default_factory=AnalyzerConfig)
 
     def to_yaml(self) -> str:
         return yaml.safe_dump(

@@ -17,6 +17,9 @@ from rich.table import Table
 
 from evalsmith import __version__
 from evalsmith.adapters import DEFAULT_ADAPTER, available_adapters
+from evalsmith.analysis import Component, FailureType, Severity
+from evalsmith.analysis_run import AnalysisReport
+from evalsmith.commands.analyze_cmd import label_failure, run_analysis
 from evalsmith.commands.detect_cmd import (
     FailureDetail,
     add_failure,
@@ -307,15 +310,20 @@ def failures_list(
     table.add_column("failure_id", style="cyan")
     table.add_column("trace_id")
     table.add_column("status")
-    table.add_column("evidence")
+    # A count, not the kinds: seven columns of prose does not fit a terminal,
+    # and 'failures show' is where the evidence itself belongs.
+    table.add_column("evidence", justify="right")
+    table.add_column("type")
+    table.add_column("severity")
     table.add_column("reviewer", style="dim")
     for summary in listing.summaries:
-        evidence = ", ".join(summary.kinds) if summary.kinds else "[dim]none (manual)[/]"
         table.add_row(
             summary.failure_id,
             summary.trace_id,
             _failure_status_markup(summary.status),
-            evidence,
+            str(summary.signals) if summary.signals else "[dim]manual[/]",
+            summary.failure_type or "[dim]-[/]",
+            _severity_markup(summary.severity) if summary.severity else "[dim]-[/]",
             summary.reviewer or "",
         )
     console.print(table)
@@ -396,6 +404,91 @@ def failures_add(
     )
 
 
+@app.command()
+def analyze(
+    project: Path = PROJECT_OPTION,
+    reanalyze: bool = typer.Option(
+        False, "--reanalyze", help="Re-run over existing machine analyses."
+    ),
+    overwrite_manual: bool = typer.Option(
+        False,
+        "--overwrite-manual",
+        help="Also replace hand-written labels. Off by default.",
+    ),
+    limit: int | None = typer.Option(None, "--limit", min=1, help="Stop after N failures."),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Ignore the analyzer cache."),
+) -> None:
+    """Describe failures with the configured analyzer provider."""
+    report = _run(
+        lambda: run_analysis(
+            project_root=project,
+            reanalyze=reanalyze,
+            overwrite_manual=overwrite_manual,
+            limit=limit,
+            use_cache=not no_cache,
+        )
+    )
+    _render_analysis(report)
+
+
+@failures_app.command("label")
+def failures_label(
+    identifier: str = typer.Argument(..., metavar="ID", help="Failure ID or trace ID."),
+    failure_type: FailureType = typer.Option(..., "--type", help="What went wrong."),
+    component: Component = typer.Option(..., "--component", help="Where it went wrong."),
+    severity: Severity = typer.Option(..., "--severity", help="How much it matters."),
+    summary: str = typer.Option(..., "--summary", help="One sentence naming the mistake."),
+    project: Path = PROJECT_OPTION,
+    labeler: str | None = typer.Option(None, "--labeler", help="Who is labelling."),
+) -> None:
+    """Describe a failure by hand. Works with no analyzer provider configured."""
+    analysis = _run(
+        lambda: label_failure(
+            identifier,
+            failure_type=failure_type,
+            component=component,
+            severity=severity,
+            summary=summary,
+            project_root=project,
+            labeler=labeler,
+        )
+    )
+    console.print(
+        f"[bold green]labelled[/] {analysis.failure_type.value} / "
+        f"{analysis.component.value} / {analysis.severity.value} by {analysis.labeler}"
+    )
+
+
+def _render_analysis(report: AnalysisReport) -> None:
+    summary = Table(box=None, pad_edge=False, show_header=False)
+    summary.add_column(style="bold")
+    summary.add_column(justify="right")
+    summary.add_row("analyzer", report.analyzer)
+    summary.add_row("prompt version", str(report.prompt_version))
+    summary.add_row("considered", str(report.considered))
+    summary.add_row("analyzed", f"[green]{report.analyzed}[/]")
+    if report.from_cache:
+        summary.add_row("from cache", str(report.from_cache))
+    if report.skipped:
+        summary.add_row("already analyzed", str(report.skipped))
+    if report.manual_kept:
+        summary.add_row("hand labels kept", str(report.manual_kept))
+    if report.failed:
+        summary.add_row("failed", f"[red]{report.failed}[/]")
+    if report.redactions:
+        summary.add_row("redacted values", str(report.redactions))
+    console.print(summary)
+
+    if report.by_type:
+        detail = ", ".join(f"{name} x{count}" for name, count in sorted(report.by_type.items()))
+        console.print(f"[dim]{detail}[/]")
+
+    for failure_id, message in report.errors:
+        err_console.print(f"[yellow]could not analyze[/] {failure_id}: {message}")
+
+    console.print("\nNext: [bold]evalsmith failures list[/]")
+
+
 def _failure_status_markup(status: FailureStatus) -> str:
     styles = {
         FailureStatus.CONFIRMED: "red",
@@ -403,6 +496,12 @@ def _failure_status_markup(status: FailureStatus) -> str:
         FailureStatus.DISMISSED: "dim",
     }
     return f"[{styles[status]}]{status.value}[/]"
+
+
+def _severity_markup(severity: str) -> str:
+    styles = {"critical": "bold red", "high": "red", "medium": "yellow", "low": "dim"}
+    style = styles.get(severity)
+    return f"[{style}]{severity}[/]" if style else severity
 
 
 def _render_detection(report: DetectionReport) -> None:
@@ -458,6 +557,24 @@ def _render_failure(detail: FailureDetail) -> None:
         console.print(signals)
     else:
         console.print("\n[dim]No detector evidence; this failure was added by hand.[/]")
+
+    if detail.analysis is not None:
+        analysis = detail.analysis
+        console.print("\n[bold]analysis[/]")
+        table = Table(box=None, pad_edge=False, show_header=False)
+        table.add_column(style="bold")
+        table.add_column()
+        table.add_row("type", analysis.failure_type.value)
+        table.add_row("component", analysis.component.value)
+        table.add_row("severity", _severity_markup(analysis.severity.value))
+        table.add_row("summary", analysis.summary)
+        table.add_row("analyzer", analysis.analyzer)
+        if not analysis.manual:
+            table.add_row("prompt version", str(analysis.prompt_version))
+        table.add_row("analyzed", analysis.analyzed_at.isoformat())
+        console.print(table)
+    else:
+        console.print("\n[dim]Not analyzed yet. Run 'evalsmith analyze', or label by hand.[/]")
 
     console.print("\n[bold]trace[/]")
     _render_trace(detail.trace)

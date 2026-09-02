@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from evalsmith.analysis import FailureAnalysis
 from evalsmith.detectors import Signal
 from evalsmith.failures import Failure, FailureOrigin, FailureStatus
 
@@ -29,6 +30,8 @@ class FailureSummary:
     signals: int
     kinds: list[str]
     reviewer: str | None
+    failure_type: str | None = None
+    severity: str | None = None
 
 
 class FailureStore:
@@ -87,6 +90,66 @@ class FailureStore:
                 ],
             )
 
+    def save_analysis(self, failure_id: str, analysis: FailureAnalysis) -> None:
+        """Store the latest analysis for a failure, replacing any previous one."""
+        with self._connection:
+            self._connection.execute(
+                """
+                INSERT INTO failure_analyses (
+                    failure_id, failure_type, component, severity, summary,
+                    analyzer, prompt_version, analyzed_at, labeler, raw_response
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(failure_id) DO UPDATE SET
+                    failure_type = excluded.failure_type,
+                    component = excluded.component,
+                    severity = excluded.severity,
+                    summary = excluded.summary,
+                    analyzer = excluded.analyzer,
+                    prompt_version = excluded.prompt_version,
+                    analyzed_at = excluded.analyzed_at,
+                    labeler = excluded.labeler,
+                    raw_response = excluded.raw_response
+                """,
+                (
+                    failure_id,
+                    analysis.failure_type.value,
+                    analysis.component.value,
+                    analysis.severity.value,
+                    analysis.summary,
+                    analysis.analyzer,
+                    analysis.prompt_version,
+                    analysis.analyzed_at.isoformat(),
+                    analysis.labeler,
+                    analysis.raw_response,
+                ),
+            )
+
+    def get_analysis(self, failure_id: str) -> FailureAnalysis | None:
+        row = self._connection.execute(
+            "SELECT * FROM failure_analyses WHERE failure_id = ?", (failure_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return FailureAnalysis.from_dict(
+            {
+                "failure_type": row["failure_type"],
+                "component": row["component"],
+                "severity": row["severity"],
+                "summary": row["summary"],
+                "analyzer": row["analyzer"],
+                "prompt_version": row["prompt_version"],
+                "analyzed_at": row["analyzed_at"],
+                "labeler": row["labeler"],
+                "raw_response": row["raw_response"],
+            }
+        )
+
+    def counts_by_type(self) -> dict[str, int]:
+        rows = self._connection.execute(
+            "SELECT failure_type, COUNT(*) AS n FROM failure_analyses GROUP BY failure_type"
+        ).fetchall()
+        return {row["failure_type"]: int(row["n"]) for row in rows}
+
     def delete(self, failure_id: str) -> None:
         with self._connection:
             self._connection.execute("DELETE FROM failures WHERE failure_id = ?", (failure_id,))
@@ -106,12 +169,16 @@ class FailureStore:
     def list(
         self, *, status: FailureStatus | None = None, limit: int = 50, offset: int = 0
     ) -> list[FailureSummary]:
-        query = "SELECT * FROM failures"
+        query = """
+            SELECT f.*, a.failure_type AS analysis_type, a.severity AS analysis_severity
+            FROM failures f
+            LEFT JOIN failure_analyses a ON a.failure_id = f.failure_id
+        """
         parameters: list[Any] = []
         if status is not None:
-            query += " WHERE status = ?"
+            query += " WHERE f.status = ?"
             parameters.append(status.value)
-        query += " ORDER BY detected_at, failure_id LIMIT ? OFFSET ?"
+        query += " ORDER BY f.detected_at, f.failure_id LIMIT ? OFFSET ?"
         parameters += [limit, offset]
 
         summaries: list[FailureSummary] = []
@@ -129,6 +196,8 @@ class FailureStore:
                     signals=len(signals),
                     kinds=list(kinds),
                     reviewer=row["reviewer"],
+                    failure_type=row["analysis_type"],
+                    severity=row["analysis_severity"],
                 )
             )
         return summaries

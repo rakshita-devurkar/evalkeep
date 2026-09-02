@@ -6,6 +6,7 @@ import getpass
 from dataclasses import dataclass
 from pathlib import Path
 
+from evalsmith.analysis import FailureAnalysis
 from evalsmith.config import Project
 from evalsmith.detection import DetectionReport, detect_failures
 from evalsmith.errors import CommandError
@@ -22,10 +23,11 @@ class FailureListing:
 
 @dataclass(frozen=True)
 class FailureDetail:
-    """A failure together with the trace it describes."""
+    """A failure together with the trace it describes and how it was labelled."""
 
     failure: Failure
     trace: StoredTrace
+    analysis: FailureAnalysis | None = None
 
 
 def default_reviewer() -> str:
@@ -67,11 +69,15 @@ def show_failure(identifier: str, *, project_root: Path = Path()) -> FailureDeta
     """Look one up by failure ID or by the trace ID it belongs to."""
     project = Project.load(project_root.expanduser().resolve())
     with TraceStore.open(project.database_path) as store:
-        failure = _resolve(store, identifier)
+        failure = resolve_failure(store, identifier)
         stored = store.get(failure.trace_id)
         if stored is None:  # pragma: no cover - the foreign key prevents this
             raise CommandError(f"Trace {failure.trace_id!r} is missing from the store.")
-        return FailureDetail(failure=failure, trace=stored)
+        return FailureDetail(
+            failure=failure,
+            trace=stored,
+            analysis=store.failures.get_analysis(failure.failure_id),
+        )
 
 
 def review_failure(
@@ -85,7 +91,7 @@ def review_failure(
     """Record a human decision on an existing failure."""
     project = Project.load(project_root.expanduser().resolve())
     with TraceStore.open(project.database_path) as store:
-        failure = _resolve(store, identifier)
+        failure = resolve_failure(store, identifier)
         failure.review(status, reviewer=reviewer or default_reviewer(), reason=reason)
         store.failures.save(failure)
         return failure
@@ -120,7 +126,7 @@ def add_failure(
         return failure
 
 
-def _resolve(store: TraceStore, identifier: str) -> Failure:
+def resolve_failure(store: TraceStore, identifier: str) -> Failure:
     """Accept either a failure ID or the trace ID it was derived from."""
     cleaned = identifier.strip()
     failure = store.failures.get(cleaned) or store.failures.get_by_trace(cleaned)

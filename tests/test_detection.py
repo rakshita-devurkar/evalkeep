@@ -337,11 +337,19 @@ class TestCli:
         result = runner.invoke(app, ["detect", "-C", str(initialized_project)])
         assert result.exit_code == ExitCode.COMMAND_ERROR
 
-    def test_failures_list_shows_evidence_kinds(self, runner: CliRunner, ingested: Path) -> None:
+    def test_failures_list_counts_evidence(self, runner: CliRunner, ingested: Path) -> None:
         runner.invoke(app, ["detect", "-C", str(ingested)])
         result = runner.invoke(app, ["failures", "list", "-C", str(ingested)])
         assert "trace-1042" in result.stdout
+        assert "candidate" in result.stdout
+
+    def test_failures_show_names_the_evidence_kinds(
+        self, runner: CliRunner, ingested: Path
+    ) -> None:
+        runner.invoke(app, ["detect", "-C", str(ingested)])
+        result = runner.invoke(app, ["failures", "show", "trace-1042", "-C", str(ingested)])
         assert "explicit_status" in result.stdout
+        assert "negative_feedback" in result.stdout
 
     def test_failures_list_when_empty(self, runner: CliRunner, ingested: Path) -> None:
         result = runner.invoke(app, ["failures", "list", "-C", str(ingested)])

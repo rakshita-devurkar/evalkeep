@@ -95,6 +95,31 @@ MIGRATIONS: tuple[Migration, ...] = (
             "CREATE INDEX failure_signals_kind ON failure_signals(kind)",
         ),
     ),
+    Migration(
+        version=3,
+        name="failure analysis",
+        statements=(
+            # One analysis per failure: the latest replaces the previous one,
+            # and the provenance columns say who produced it.
+            """
+            CREATE TABLE failure_analyses (
+                failure_id     TEXT PRIMARY KEY
+                               REFERENCES failures(failure_id) ON DELETE CASCADE,
+                failure_type   TEXT NOT NULL,
+                component      TEXT NOT NULL,
+                severity       TEXT NOT NULL,
+                summary        TEXT NOT NULL,
+                analyzer       TEXT NOT NULL,
+                prompt_version INTEGER NOT NULL,
+                analyzed_at    TEXT NOT NULL,
+                labeler        TEXT,
+                raw_response   TEXT
+            )
+            """,
+            "CREATE INDEX failure_analyses_type ON failure_analyses(failure_type)",
+            "CREATE INDEX failure_analyses_severity ON failure_analyses(severity)",
+        ),
+    ),
 )
 
 LATEST_VERSION = max(migration.version for migration in MIGRATIONS)
