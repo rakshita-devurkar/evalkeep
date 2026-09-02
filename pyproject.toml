@@ -48,7 +48,10 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 "src/evalsmith/cli.py" = ["B008"]
 
 [tool.mypy]
-python_version = "3.11"
+# Deliberately not pinned to a python_version: mypy should analyse for the
+# interpreter it is running on, and the CI matrix runs it on each supported
+# version. Pinning to 3.11 made mypy reject numpy's own 3.12+ stubs when the
+# venv was 3.12 or 3.13. `requires-python` above is what states the floor.
 files = ["src", "tests"]
 strict = true
 warn_unreachable = true
