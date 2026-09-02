@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from evalsmith.adapters import AdapterRecord, IssueKind, JsonlAdapter, TraceAdapter, get_adapter
-from evalsmith.errors import CommandError
+from evalkeep.adapters import AdapterRecord, IssueKind, JsonlAdapter, TraceAdapter, get_adapter
+from evalkeep.errors import CommandError
 
 MINIMAL: dict[str, Any] = {
     "trace_id": "trace-1",

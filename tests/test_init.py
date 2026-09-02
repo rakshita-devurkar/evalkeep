@@ -1,4 +1,4 @@
-"""``evalsmith init`` must be safe to run repeatedly and never destroy work."""
+"""``evalkeep init`` must be safe to run repeatedly and never destroy work."""
 
 from __future__ import annotations
 
@@ -8,23 +8,23 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from evalsmith.cli import app
-from evalsmith.commands.init_cmd import Action, initialize_project
-from evalsmith.config import (
+from evalkeep.cli import app
+from evalkeep.commands.init_cmd import Action, initialize_project
+from evalkeep.config import (
     CONFIG_FILENAME,
     GITIGNORE_ENTRIES,
     STATE_SUBDIRS,
     Project,
     ProjectConfig,
 )
-from evalsmith.errors import CommandError, ExitCode
+from evalkeep.errors import CommandError, ExitCode
 
 
 def test_creates_config_state_dirs_and_gitignore(project_dir: Path) -> None:
     report = initialize_project(project_dir)
 
     assert (project_dir / CONFIG_FILENAME).is_file()
-    state = project_dir / ".evalsmith"
+    state = project_dir / ".evalkeep"
     assert state.is_dir()
     for name in STATE_SUBDIRS:
         assert (state / name).is_dir()
@@ -73,7 +73,7 @@ def test_force_rewrites_the_config(project_dir: Path) -> None:
 
     report = initialize_project(project_dir, force=True)
 
-    assert report.project.config.state_dir == ".evalsmith"
+    assert report.project.config.state_dir == ".evalkeep"
     assert any(step.action is Action.OVERWRITTEN for step in report.steps)
 
 
@@ -88,12 +88,12 @@ def test_keeps_existing_gitignore_lines_and_adds_only_what_is_missing(
     lines = gitignore.read_text().splitlines()
     assert lines[0] == "__pycache__/"
     assert lines.count(".env") == 1
-    assert ".evalsmith/runs/" in lines
+    assert ".evalkeep/runs/" in lines
 
 
 def test_does_not_delete_existing_state(project_dir: Path) -> None:
     initialize_project(project_dir)
-    kept = project_dir / ".evalsmith" / "data" / "traces.jsonl"
+    kept = project_dir / ".evalkeep" / "data" / "traces.jsonl"
     kept.write_text('{"trace_id": "trace-1"}\n')
 
     initialize_project(project_dir)
@@ -129,7 +129,7 @@ def test_unwritable_directory_is_a_command_error(project_dir: Path) -> None:
 
 
 def test_state_path_blocked_by_a_file_is_a_command_error(project_dir: Path) -> None:
-    (project_dir / ".evalsmith").write_text("not a directory")
+    (project_dir / ".evalkeep").write_text("not a directory")
     with pytest.raises(CommandError):
         initialize_project(project_dir)
 
@@ -139,7 +139,7 @@ class TestProjectLoad:
         initialize_project(project_dir, project_name="demo-project")
         project = Project.load(project_dir)
         assert project.config.project_name == "demo-project"
-        assert project.database_path == project_dir / ".evalsmith" / "database.db"
+        assert project.database_path == project_dir / ".evalkeep" / "database.db"
 
     def test_uninitialized_directory_is_a_command_error(self, project_dir: Path) -> None:
         with pytest.raises(CommandError):

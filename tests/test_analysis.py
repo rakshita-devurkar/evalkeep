@@ -10,7 +10,7 @@ from typing import Any, ClassVar
 import pytest
 from typer.testing import CliRunner
 
-from evalsmith.analysis import (
+from evalkeep.analysis import (
     AnalyzerError,
     AnalyzerProvider,
     Component,
@@ -19,24 +19,24 @@ from evalsmith.analysis import (
     ProviderAnalysis,
     Severity,
 )
-from evalsmith.analysis_run import analyze_failures
-from evalsmith.analyzers import MANUAL_PROVIDER, StubAnalyzer, get_analyzer
-from evalsmith.cache import AnalysisCache, cache_key
-from evalsmith.cli import app
-from evalsmith.commands.analyze_cmd import label_failure, run_analysis
-from evalsmith.commands.detect_cmd import run_detection, show_failure
-from evalsmith.commands.ingest_cmd import ingest_traces
-from evalsmith.config import AnalyzerConfig, Project
-from evalsmith.detectors import Signal
-from evalsmith.errors import CommandError, ExitCode
-from evalsmith.failures import FailureStatus
-from evalsmith.prompts import (
+from evalkeep.analysis_run import analyze_failures
+from evalkeep.analyzers import MANUAL_PROVIDER, StubAnalyzer, get_analyzer
+from evalkeep.cache import AnalysisCache, cache_key
+from evalkeep.cli import app
+from evalkeep.commands.analyze_cmd import label_failure, run_analysis
+from evalkeep.commands.detect_cmd import run_detection, show_failure
+from evalkeep.commands.ingest_cmd import ingest_traces
+from evalkeep.config import AnalyzerConfig, Project
+from evalkeep.detectors import Signal
+from evalkeep.errors import CommandError, ExitCode
+from evalkeep.failures import FailureStatus
+from evalkeep.prompts import (
     FAILURE_ANALYSIS_PROMPT_VERSION,
     FAILURE_ANALYSIS_SCHEMA,
     failure_analysis_prompt,
 )
-from evalsmith.storage import TraceStore
-from evalsmith.trace import NormalizedTrace
+from evalkeep.storage import TraceStore
+from evalkeep.trace import NormalizedTrace
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples/refund-agent/traces.jsonl"
 
@@ -269,7 +269,7 @@ class TestReanalysis:
     ) -> None:
         provider = RecordingAnalyzer()
         analyze_failures(store, provider, cache)
-        monkeypatch.setattr("evalsmith.analysis_run.FAILURE_ANALYSIS_PROMPT_VERSION", 2)
+        monkeypatch.setattr("evalkeep.analysis_run.FAILURE_ANALYSIS_PROMPT_VERSION", 2)
         report = analyze_failures(store, provider, cache)
         assert report.analyzed == 3
 
@@ -569,7 +569,7 @@ class TestCli:
 
 
 def _use_stub(project_root: Path) -> None:
-    config_path = project_root / "evalsmith.yaml"
+    config_path = project_root / "evalkeep.yaml"
     config_path.write_text(config_path.read_text().replace("provider: manual", "provider: stub"))
 
 
@@ -601,7 +601,7 @@ class TestAnthropicResponseParsing:
     handling it depends on is tested directly."""
 
     def test_a_schema_valid_response_parses(self) -> None:
-        from evalsmith.analyzers.anthropic import _parse
+        from evalkeep.analyzers.anthropic import _parse
 
         produced = _parse(_Response([_Block("text", _valid_payload())]), "anthropic:m")
         assert produced.failure_type is FailureType.WRONG_TOOL_ARGUMENT
@@ -610,38 +610,38 @@ class TestAnthropicResponseParsing:
         assert produced.raw_response is not None
 
     def test_thinking_blocks_are_skipped(self) -> None:
-        from evalsmith.analyzers.anthropic import _parse
+        from evalkeep.analyzers.anthropic import _parse
 
         response = _Response([_Block("thinking"), _Block("text", _valid_payload())])
         assert _parse(response, "anthropic:m").summary.startswith("Refunded")
 
     def test_a_refusal_is_an_analyzer_error(self) -> None:
-        from evalsmith.analyzers.anthropic import _parse
+        from evalkeep.analyzers.anthropic import _parse
 
         with pytest.raises(AnalyzerError, match="declined"):
             _parse(_Response([], stop_reason="refusal"), "anthropic:m")
 
     def test_a_truncated_response_is_an_analyzer_error(self) -> None:
-        from evalsmith.analyzers.anthropic import _parse
+        from evalkeep.analyzers.anthropic import _parse
 
         with pytest.raises(AnalyzerError, match="max_tokens"):
             _parse(_Response([_Block("text", "{")], stop_reason="max_tokens"), "anthropic:m")
 
     def test_no_text_block_is_an_analyzer_error(self) -> None:
-        from evalsmith.analyzers.anthropic import _parse
+        from evalkeep.analyzers.anthropic import _parse
 
         with pytest.raises(AnalyzerError, match="no text content"):
             _parse(_Response([_Block("thinking")]), "anthropic:m")
 
     def test_non_json_text_is_an_analyzer_error(self) -> None:
-        from evalsmith.analyzers.anthropic import _parse
+        from evalkeep.analyzers.anthropic import _parse
 
         with pytest.raises(AnalyzerError, match="not JSON"):
             _parse(_Response([_Block("text", "Sure! Here you go:")]), "anthropic:m")
 
     def test_an_off_vocabulary_value_is_an_analyzer_error(self) -> None:
         """A label outside the closed vocabulary must not reach the database."""
-        from evalsmith.analyzers.anthropic import _parse
+        from evalkeep.analyzers.anthropic import _parse
 
         with pytest.raises(AnalyzerError, match="does not match the schema"):
             _parse(
@@ -650,24 +650,24 @@ class TestAnthropicResponseParsing:
             )
 
     def test_a_missing_field_is_an_analyzer_error(self) -> None:
-        from evalsmith.analyzers.anthropic import _parse
+        from evalkeep.analyzers.anthropic import _parse
 
         text = json.dumps({"failure_type": "other", "component": "unknown"})
         with pytest.raises(AnalyzerError, match="does not match the schema"):
             _parse(_Response([_Block("text", text)]), "anthropic:m")
 
     def test_the_identity_names_the_model(self) -> None:
-        from evalsmith.analyzers.anthropic import AnthropicAnalyzer
+        from evalkeep.analyzers.anthropic import AnthropicAnalyzer
 
         assert AnthropicAnalyzer(model="claude-opus-5").identity == "anthropic:claude-opus-5"
 
     def test_it_satisfies_the_provider_protocol(self) -> None:
-        from evalsmith.analyzers.anthropic import AnthropicAnalyzer
+        from evalkeep.analyzers.anthropic import AnthropicAnalyzer
 
         assert isinstance(AnthropicAnalyzer(), AnalyzerProvider)
 
     def test_a_client_error_becomes_an_analyzer_error(self) -> None:
-        from evalsmith.analyzers.anthropic import AnthropicAnalyzer
+        from evalkeep.analyzers.anthropic import AnthropicAnalyzer
 
         class Boom:
             class messages:
@@ -682,7 +682,7 @@ class TestAnthropicResponseParsing:
             AnthropicAnalyzer(client=Boom()).analyze_failure(trace, [])
 
     def test_the_request_is_shaped_for_structured_output(self) -> None:
-        from evalsmith.analyzers.anthropic import AnthropicAnalyzer
+        from evalkeep.analyzers.anthropic import AnthropicAnalyzer
 
         captured: dict[str, Any] = {}
 

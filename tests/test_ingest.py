@@ -9,11 +9,11 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from evalsmith.adapters import IssueKind, JsonlAdapter
-from evalsmith.cli import app
-from evalsmith.commands.ingest_cmd import ingest_traces
-from evalsmith.errors import CommandError, ExitCode
-from evalsmith.ingest import ingest_file
+from evalkeep.adapters import IssueKind, JsonlAdapter
+from evalkeep.cli import app
+from evalkeep.commands.ingest_cmd import ingest_traces
+from evalkeep.errors import CommandError, ExitCode
+from evalkeep.ingest import ingest_file
 
 MINIMAL: dict[str, Any] = {
     "trace_id": "trace-1",
@@ -155,7 +155,7 @@ class TestFileErrors:
 class TestIngestCommand:
     def test_storing_needs_an_initialized_project(self, traces_file: Path, tmp_path: Path) -> None:
         write_traces(traces_file, trace_line())
-        with pytest.raises(CommandError, match=r"evalsmith\.yaml"):
+        with pytest.raises(CommandError, match=r"evalkeep\.yaml"):
             ingest_traces(traces_file, project_root=tmp_path)
 
     def test_validate_only_and_dry_run_cannot_be_combined(self, traces_file: Path) -> None:

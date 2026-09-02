@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from evalsmith.trace import (
+from evalkeep.trace import (
     SCHEMA_VERSION,
     NormalizedTrace,
     OutcomeStatus,

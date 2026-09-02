@@ -9,26 +9,26 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from evalsmith.cli import app
-from evalsmith.commands.compare_cmd import (
+from evalkeep.cli import app
+from evalkeep.commands.compare_cmd import (
     compare,
     current_baseline,
     list_runs,
     promote_baseline,
     show_run,
 )
-from evalsmith.comparison import (
+from evalkeep.comparison import (
     MIN_DISCORDANT_FOR_INTERVAL,
     CaseComparison,
     Classification,
     compare_results,
     paired_statistics,
 )
-from evalsmith.config import Project
-from evalsmith.errors import CommandError, ExitCode
-from evalsmith.runs import CaseResult, ErrorKind, EvaluationRun, Outcome, RunStatus
-from evalsmith.storage import TraceStore
-from evalsmith.storage.runs import AmbiguousRun
+from evalkeep.config import Project
+from evalkeep.errors import CommandError, ExitCode
+from evalkeep.runs import CaseResult, ErrorKind, EvaluationRun, Outcome, RunStatus
+from evalkeep.storage import TraceStore
+from evalkeep.storage.runs import AmbiguousRun
 
 SUITE = "sha256:abc123"
 

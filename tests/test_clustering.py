@@ -7,9 +7,9 @@ from typing import Any, ClassVar
 
 import pytest
 
-from evalsmith.analysis import Component, FailureAnalysis, FailureType, Severity
-from evalsmith.cache import EmbeddingCache, embedding_key
-from evalsmith.clustering import (
+from evalkeep.analysis import Component, FailureAnalysis, FailureType, Severity
+from evalkeep.cache import EmbeddingCache, embedding_key
+from evalkeep.clustering import (
     ClusterInput,
     assign_roles,
     build_clusters,
@@ -17,10 +17,10 @@ from evalsmith.clustering import (
     clustering_parameters,
     derive_label,
 )
-from evalsmith.clusters import ClusterMember, MemberRole, cluster_id_for
-from evalsmith.config import ClusteringConfig
-from evalsmith.embeddings import EmbeddingProvider, HashingEmbedder, get_embedder
-from evalsmith.errors import CommandError
+from evalkeep.clusters import ClusterMember, MemberRole, cluster_id_for
+from evalkeep.config import ClusteringConfig
+from evalkeep.embeddings import EmbeddingProvider, HashingEmbedder, get_embedder
+from evalkeep.errors import CommandError
 
 # Two members of one family, plus two clearly different failures.
 WRONG_ORDER_A = "Refunded the oldest order instead of the newest order."

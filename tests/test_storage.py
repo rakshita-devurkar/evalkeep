@@ -9,11 +9,11 @@ from typing import Any
 
 import pytest
 
-from evalsmith.errors import CommandError
-from evalsmith.hashing import canonical_content, content_hash
-from evalsmith.redaction import RedactionRule, RedactionSummary
-from evalsmith.storage import LATEST_VERSION, MIGRATIONS, StoreResult, TraceStore, apply_migrations
-from evalsmith.trace import NormalizedTrace
+from evalkeep.errors import CommandError
+from evalkeep.hashing import canonical_content, content_hash
+from evalkeep.redaction import RedactionRule, RedactionSummary
+from evalkeep.storage import LATEST_VERSION, MIGRATIONS, StoreResult, TraceStore, apply_migrations
+from evalkeep.trace import NormalizedTrace
 
 
 def make_trace(trace_id: str = "trace-1", **overrides: Any) -> NormalizedTrace:
@@ -297,8 +297,8 @@ def _trace_with_events(**overrides: Any) -> NormalizedTrace:
 
 class TestFailureStorage:
     def _failure(self, trace_id: str = "trace-1") -> Any:
-        from evalsmith.detectors import Signal, SignalKind
-        from evalsmith.failures import Failure
+        from evalkeep.detectors import Signal, SignalKind
+        from evalkeep.failures import Failure
 
         return Failure.from_signals(
             trace_id,
@@ -340,7 +340,7 @@ class TestFailureStorage:
         assert len(loaded.signals) == 1
 
     def test_one_failure_per_trace_is_enforced_by_the_schema(self, store: TraceStore) -> None:
-        from evalsmith.failures import Failure
+        from evalkeep.failures import Failure
 
         store.add(make_trace())
         store.failures.save(self._failure())
@@ -377,7 +377,7 @@ class TestFailureStorage:
 
 class TestClusterStorage:
     def _cluster(self, failure_ids: list[str]) -> Any:
-        from evalsmith.clusters import Cluster, ClusterMember, MemberRole
+        from evalkeep.clusters import Cluster, ClusterMember, MemberRole
 
         members = [
             ClusterMember(failure_id=fid, distance=0.1 * index)
@@ -387,7 +387,7 @@ class TestClusterStorage:
         return Cluster.build(label="wrong_tool_argument in tool_arguments", members=members)
 
     def _run(self) -> Any:
-        from evalsmith.clusters import ClusteringRun
+        from evalkeep.clusters import ClusteringRun
 
         return ClusteringRun(
             run_id="run-1",
@@ -398,8 +398,8 @@ class TestClusterStorage:
         )
 
     def _seed(self, store: TraceStore, count: int = 2) -> list[str]:
-        from evalsmith.detectors import Signal, SignalKind
-        from evalsmith.failures import Failure
+        from evalkeep.detectors import Signal, SignalKind
+        from evalkeep.failures import Failure
 
         failure_ids: list[str] = []
         for index in range(count):
@@ -438,7 +438,7 @@ class TestClusterStorage:
         assert run.parameters == {"threshold": 0.55, "seed": 0}
 
     def test_members_and_roles_round_trip(self, store: TraceStore) -> None:
-        from evalsmith.clusters import MemberRole
+        from evalkeep.clusters import MemberRole
 
         failure_ids = self._seed(store)
         cluster = self._cluster(failure_ids)
@@ -483,7 +483,7 @@ class TestClusterStorage:
 
 class TestRegressionTestStorage:
     def _test(self, failure_id: str) -> Any:
-        from evalsmith.regression import (
+        from evalkeep.regression import (
             CaseInput,
             Expectation,
             ExpectationType,
@@ -515,7 +515,7 @@ class TestRegressionTestStorage:
         )
 
     def _seed(self, store: TraceStore) -> str:
-        from evalsmith.failures import Failure
+        from evalkeep.failures import Failure
 
         store.add(make_trace("trace-1"))
         failure = Failure.from_signals("trace-1", [])
@@ -532,7 +532,7 @@ class TestRegressionTestStorage:
         assert "regression_tests" in names
 
     def test_a_test_round_trips(self, store: TraceStore) -> None:
-        from evalsmith.regression import ExpectationType
+        from evalkeep.regression import ExpectationType
 
         failure_id = self._seed(store)
         store.tests.save(self._test(failure_id))
@@ -553,7 +553,7 @@ class TestRegressionTestStorage:
             store.tests.save(second)
 
     def test_saving_twice_updates_in_place(self, store: TraceStore) -> None:
-        from evalsmith.regression import ReviewStatus
+        from evalkeep.regression import ReviewStatus
 
         failure_id = self._seed(store)
         test = self._test(failure_id)
@@ -581,7 +581,7 @@ class TestRegressionTestStorage:
         assert store.clusters.count() == 0
 
     def test_filtering_by_status(self, store: TraceStore) -> None:
-        from evalsmith.regression import ReviewStatus
+        from evalkeep.regression import ReviewStatus
 
         failure_id = self._seed(store)
         store.tests.save(self._test(failure_id))
@@ -609,7 +609,7 @@ class TestRegressionTestStorage:
 
 class TestRunStorage:
     def _run_and_results(self) -> Any:
-        from evalsmith.runs import CaseResult, ErrorKind, EvaluationRun, Outcome
+        from evalkeep.runs import CaseResult, ErrorKind, EvaluationRun, Outcome
 
         run = EvaluationRun(
             run_id="run-1",
@@ -646,7 +646,7 @@ class TestRunStorage:
         assert {"evaluation_runs", "test_results"} <= names
 
     def test_a_run_round_trips_with_its_results(self, store: TraceStore) -> None:
-        from evalsmith.runs import ErrorKind, Outcome
+        from evalkeep.runs import ErrorKind, Outcome
 
         run, results = self._run_and_results()
         store.runs.save(run, results)
@@ -663,7 +663,7 @@ class TestRunStorage:
         assert stored[2].error_kind is ErrorKind.TIMEOUT
 
     def test_counts_separate_errors_from_failures(self, store: TraceStore) -> None:
-        from evalsmith.runs import Outcome
+        from evalkeep.runs import Outcome
 
         run, results = self._run_and_results()
         store.runs.save(run, results)

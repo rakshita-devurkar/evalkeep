@@ -13,30 +13,30 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-from evalsmith.cli import app
-from evalsmith.commands.analyze_cmd import label_failure
-from evalsmith.commands.dataset_cmd import build_dataset, list_tests
-from evalsmith.commands.detect_cmd import run_detection
-from evalsmith.commands.discover_cmd import run_discovery
-from evalsmith.commands.ingest_cmd import ingest_traces
-from evalsmith.commands.review_cmd import approve_test, edit_test
-from evalsmith.commands.run_cmd import approved_tests, export_suite, run_suite
-from evalsmith.commands.target_cmd import add_target
-from evalsmith.errors import CommandError, ExitCode
-from evalsmith.exporters import ExportFormat, parse_format
-from evalsmith.exporters.generic import to_jsonl, to_record
-from evalsmith.exporters.promptfoo import assertion, provider_for
-from evalsmith.regression import Expectation, ExpectationType
-from evalsmith.runner import import_results, write_suite
-from evalsmith.runs import ErrorKind, Outcome, suite_hash
-from evalsmith.targets import Target, TargetKind
+from evalkeep.cli import app
+from evalkeep.commands.analyze_cmd import label_failure
+from evalkeep.commands.dataset_cmd import build_dataset, list_tests
+from evalkeep.commands.detect_cmd import run_detection
+from evalkeep.commands.discover_cmd import run_discovery
+from evalkeep.commands.ingest_cmd import ingest_traces
+from evalkeep.commands.review_cmd import approve_test, edit_test
+from evalkeep.commands.run_cmd import approved_tests, export_suite, run_suite
+from evalkeep.commands.target_cmd import add_target
+from evalkeep.errors import CommandError, ExitCode
+from evalkeep.exporters import ExportFormat, parse_format
+from evalkeep.exporters.generic import to_jsonl, to_record
+from evalkeep.exporters.promptfoo import assertion, provider_for
+from evalkeep.regression import Expectation, ExpectationType
+from evalkeep.runner import import_results, write_suite
+from evalkeep.runs import ErrorKind, Outcome, suite_hash
+from evalkeep.targets import Target, TargetKind
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / "examples/refund-agent/traces.jsonl"
 AGENTS = ROOT / "examples/refund-agent/agents"
 
 NODE = shutil.which("node")
-E2E = os.environ.get("EVALSMITH_E2E") == "1"
+E2E = os.environ.get("EVALKEEP_E2E") == "1"
 
 LABELS: dict[str, tuple[str, str, str, str]] = {
     "trace-1042": (
@@ -97,7 +97,7 @@ def script_target(name: str = "baseline") -> Target:
 @pytest.fixture
 def approved(initialized_project: Path) -> Path:
     """A project with three approved, complete regression tests."""
-    from evalsmith.analysis import Component, FailureType, Severity
+    from evalkeep.analysis import Component, FailureType, Severity
 
     ingest_traces(EXAMPLE, project_root=initialized_project)
     run_detection(project_root=initialized_project)
@@ -280,7 +280,7 @@ class TestProviderTranslation:
         """The config is a build artifact and can land anywhere; the path must follow."""
         (tmp_path / "agents").mkdir()
         (tmp_path / "agents/baseline.py").write_text("")
-        config_dir = tmp_path / ".evalsmith" / "runs" / "abc"
+        config_dir = tmp_path / ".evalkeep" / "runs" / "abc"
         config_dir.mkdir(parents=True)
         provider = provider_for(script_target(), project_root=tmp_path, config_dir=config_dir)
         resolved = (config_dir / provider["id"].removeprefix("file://").split(":")[0]).resolve()
@@ -324,9 +324,9 @@ class TestExport:
         assert len(config["tests"]) == 3
 
     def test_a_draft_is_never_exported(self, approved: Path) -> None:
-        from evalsmith.config import Project
-        from evalsmith.regression import ReviewStatus
-        from evalsmith.storage import TraceStore
+        from evalkeep.config import Project
+        from evalkeep.regression import ReviewStatus
+        from evalkeep.storage import TraceStore
 
         with TraceStore.open(Project.load(approved).database_path) as store:
             test = store.tests.list(status=ReviewStatus.APPROVED)[0]
@@ -516,10 +516,10 @@ class TestRunInvocation:
         assert not any(";" in str(part) or "|" in str(part) for part in captured["argv"])
 
     def test_a_missing_runner_is_a_command_error(self, approved: Path) -> None:
-        from evalsmith.config import Project
+        from evalkeep.config import Project
 
         project = Project.load(approved)
-        config_path = approved / "evalsmith.yaml"
+        config_path = approved / "evalkeep.yaml"
         config = yaml.safe_load(config_path.read_text())
         config["runner"] = {"command": ["definitely-not-installed-xyz"]}
         config_path.write_text(yaml.safe_dump(config))
@@ -655,7 +655,7 @@ class TestCli:
         assert result.exit_code == ExitCode.COMMAND_ERROR
 
 
-@pytest.mark.skipif(not E2E, reason="set EVALSMITH_E2E=1 to run the real runner")
+@pytest.mark.skipif(not E2E, reason="set EVALKEEP_E2E=1 to run the real runner")
 class TestAgainstTheRealRunner:
     """Guide 9.2: the buggy agent fails the suite and the fixed one passes it."""
 

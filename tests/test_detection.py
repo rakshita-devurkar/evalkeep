@@ -10,21 +10,21 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from evalsmith.cli import app
-from evalsmith.commands.detect_cmd import (
+from evalkeep.cli import app
+from evalkeep.commands.detect_cmd import (
     add_failure,
     list_failures,
     review_failure,
     run_detection,
     show_failure,
 )
-from evalsmith.commands.ingest_cmd import ingest_traces
-from evalsmith.detection import detect_failures
-from evalsmith.detectors import ExplicitStatusDetector, NegativeFeedbackDetector
-from evalsmith.errors import CommandError, ExitCode
-from evalsmith.failures import FailureOrigin, FailureStatus, failure_id_for
-from evalsmith.storage import TraceStore
-from evalsmith.trace import NormalizedTrace
+from evalkeep.commands.ingest_cmd import ingest_traces
+from evalkeep.detection import detect_failures
+from evalkeep.detectors import ExplicitStatusDetector, NegativeFeedbackDetector
+from evalkeep.errors import CommandError, ExitCode
+from evalkeep.failures import FailureOrigin, FailureStatus, failure_id_for
+from evalkeep.storage import TraceStore
+from evalkeep.trace import NormalizedTrace
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples/refund-agent/traces.jsonl"
 
@@ -218,7 +218,7 @@ class TestWithdrawal:
 
     def test_a_manual_failure_is_never_withdrawn(self, store: TraceStore) -> None:
         store_trace(store, "trace-1", outcome={"status": "success"})
-        from evalsmith.failures import Failure
+        from evalkeep.failures import Failure
 
         store.failures.save(Failure.manual("trace-1", reviewer="alex", reason="looks wrong"))
         report = detect_failures(store)
@@ -300,7 +300,7 @@ class TestInspection:
             run_detection(project_root=initialized_project)
 
     def test_detection_needs_a_project(self, tmp_path: Path) -> None:
-        with pytest.raises(CommandError, match=r"evalsmith\.yaml"):
+        with pytest.raises(CommandError, match=r"evalkeep\.yaml"):
             run_detection(project_root=tmp_path)
 
 

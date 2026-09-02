@@ -8,12 +8,12 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from evalsmith.analysis import Component, FailureType, Severity
-from evalsmith.cli import app
-from evalsmith.clusters import MemberRole
-from evalsmith.commands.analyze_cmd import label_failure
-from evalsmith.commands.detect_cmd import review_failure, run_detection
-from evalsmith.commands.discover_cmd import (
+from evalkeep.analysis import Component, FailureType, Severity
+from evalkeep.cli import app
+from evalkeep.clusters import MemberRole
+from evalkeep.commands.analyze_cmd import label_failure
+from evalkeep.commands.detect_cmd import review_failure, run_detection
+from evalkeep.commands.discover_cmd import (
     dismiss_cluster,
     list_clusters,
     merge_clusters,
@@ -23,11 +23,11 @@ from evalsmith.commands.discover_cmd import (
     show_cluster,
     split_cluster,
 )
-from evalsmith.commands.ingest_cmd import ingest_traces
-from evalsmith.config import Project
-from evalsmith.errors import CommandError, ExitCode
-from evalsmith.failures import FailureStatus, failure_id_for
-from evalsmith.storage import TraceStore
+from evalkeep.commands.ingest_cmd import ingest_traces
+from evalkeep.config import Project
+from evalkeep.errors import CommandError, ExitCode
+from evalkeep.failures import FailureStatus, failure_id_for
+from evalkeep.storage import TraceStore
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples/refund-agent/traces.jsonl"
 

@@ -9,14 +9,14 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-from evalsmith.analysis import Component, FailureType, Severity
-from evalsmith.cli import app
-from evalsmith.commands.analyze_cmd import label_failure
-from evalsmith.commands.dataset_cmd import build_dataset, list_tests, show_test
-from evalsmith.commands.detect_cmd import run_detection
-from evalsmith.commands.discover_cmd import run_discovery
-from evalsmith.commands.ingest_cmd import ingest_traces
-from evalsmith.commands.review_cmd import (
+from evalkeep.analysis import Component, FailureType, Severity
+from evalkeep.cli import app
+from evalkeep.commands.analyze_cmd import label_failure
+from evalkeep.commands.dataset_cmd import build_dataset, list_tests, show_test
+from evalkeep.commands.detect_cmd import run_detection
+from evalkeep.commands.discover_cmd import run_discovery
+from evalkeep.commands.ingest_cmd import ingest_traces
+from evalkeep.commands.review_cmd import (
     approve_test,
     edit_test,
     editable_document,
@@ -24,8 +24,8 @@ from evalsmith.commands.review_cmd import (
     reject_test,
     review_item,
 )
-from evalsmith.errors import CommandError, ExitCode
-from evalsmith.regression import (
+from evalkeep.errors import CommandError, ExitCode
+from evalkeep.regression import (
     CaseInput,
     Expectation,
     ExpectationType,
@@ -33,7 +33,7 @@ from evalsmith.regression import (
     RegressionTest,
     ReviewStatus,
 )
-from evalsmith.review import (
+from evalkeep.review import (
     ReviewError,
     apply_edits,
     approve,

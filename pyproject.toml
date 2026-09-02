@@ -1,5 +1,5 @@
 [project]
-name = "evalsmith"
+name = "evalkeep"
 version = "0.1.0"
 description = "Turn real AI-agent failures into reviewed regression tests."
 readme = "README.md"
@@ -20,7 +20,7 @@ dependencies = [
 anthropic = ["anthropic>=1.0.0"]
 
 [project.scripts]
-evalsmith = "evalsmith.cli:main"
+evalkeep = "evalkeep.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.12.8,<0.13.0"]
@@ -45,7 +45,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 # Typer declares options as argument defaults.
-"src/evalsmith/cli.py" = ["B008"]
+"src/evalkeep/cli.py" = ["B008"]
 
 [tool.mypy]
 # Deliberately not pinned to a python_version: mypy should analyse for the
@@ -71,5 +71,5 @@ testpaths = ["tests"]
 addopts = "-q --strict-markers --strict-config"
 
 [tool.coverage.run]
-source = ["evalsmith"]
+source = ["evalkeep"]
 branch = true

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typer.testing import CliRunner
 
-from evalsmith import __version__
-from evalsmith.cli import app
-from evalsmith.errors import ExitCode
+from evalkeep import __version__
+from evalkeep.cli import app
+from evalkeep.errors import ExitCode
 
 
 def test_version_command(runner: CliRunner) -> None:

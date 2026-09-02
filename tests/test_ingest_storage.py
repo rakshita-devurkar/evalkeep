@@ -9,12 +9,12 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from evalsmith.cli import app
-from evalsmith.commands.ingest_cmd import ingest_traces
-from evalsmith.commands.trace_cmd import list_traces, show_trace
-from evalsmith.config import Project
-from evalsmith.errors import CommandError, ExitCode
-from evalsmith.ingest import IngestMode
+from evalkeep.cli import app
+from evalkeep.commands.ingest_cmd import ingest_traces
+from evalkeep.commands.trace_cmd import list_traces, show_trace
+from evalkeep.config import Project
+from evalkeep.errors import CommandError, ExitCode
+from evalkeep.ingest import IngestMode
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples/refund-agent/traces.jsonl"
 
@@ -196,7 +196,7 @@ class TestTraceInspection:
             show_trace("trace-nope", project_root=initialized_project)
 
     def test_inspection_needs_an_initialized_project(self, tmp_path: Path) -> None:
-        with pytest.raises(CommandError, match=r"evalsmith\.yaml"):
+        with pytest.raises(CommandError, match=r"evalkeep\.yaml"):
             show_trace("trace-1", project_root=tmp_path)
 
     def test_list_reports_totals(self, initialized_project: Path) -> None:

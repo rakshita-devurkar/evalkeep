@@ -12,7 +12,7 @@ ORDERS = [
 
 
 def _respond(text, tool_calls):
-    """The response shape every Evalsmith target is normalized to."""
+    """The response shape every Evalkeep target is normalized to."""
     return {"output": {"text": text, "toolCalls": tool_calls}}
 
 

@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from evalsmith.detectors import (
+from evalkeep.detectors import (
     DETECTORS,
     ExplicitStatusDetector,
     FailedEvaluatorDetector,
@@ -16,7 +16,7 @@ from evalsmith.detectors import (
     SignalKind,
     detect_signals,
 )
-from evalsmith.trace import NormalizedTrace
+from evalkeep.trace import NormalizedTrace
 
 
 def make_trace(**overrides: Any) -> NormalizedTrace:

@@ -8,20 +8,20 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from evalsmith.analysis import Component, FailureAnalysis, FailureType, Severity
-from evalsmith.cli import app
-from evalsmith.commands.analyze_cmd import label_failure
-from evalsmith.commands.dataset_cmd import build_dataset, list_tests, show_test
-from evalsmith.commands.detect_cmd import review_failure, run_detection
-from evalsmith.commands.discover_cmd import dismiss_cluster, list_clusters, run_discovery
-from evalsmith.commands.ingest_cmd import ingest_traces
-from evalsmith.config import Project
-from evalsmith.errors import CommandError, ExitCode
-from evalsmith.failures import Failure, FailureStatus
-from evalsmith.generation import GENERATOR_VERSION, build_test, derive_expectations
-from evalsmith.regression import ExpectationType, ReviewStatus
-from evalsmith.storage import TraceStore
-from evalsmith.trace import NormalizedTrace
+from evalkeep.analysis import Component, FailureAnalysis, FailureType, Severity
+from evalkeep.cli import app
+from evalkeep.commands.analyze_cmd import label_failure
+from evalkeep.commands.dataset_cmd import build_dataset, list_tests, show_test
+from evalkeep.commands.detect_cmd import review_failure, run_detection
+from evalkeep.commands.discover_cmd import dismiss_cluster, list_clusters, run_discovery
+from evalkeep.commands.ingest_cmd import ingest_traces
+from evalkeep.config import Project
+from evalkeep.errors import CommandError, ExitCode
+from evalkeep.failures import Failure, FailureStatus
+from evalkeep.generation import GENERATOR_VERSION, build_test, derive_expectations
+from evalkeep.regression import ExpectationType, ReviewStatus
+from evalkeep.storage import TraceStore
+from evalkeep.trace import NormalizedTrace
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples/refund-agent/traces.jsonl"
 

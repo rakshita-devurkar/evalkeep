@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-from evalsmith.config import RedactionConfig
-from evalsmith.redaction import RedactionRule, RedactionSummary, Redactor, is_secret_field
-from evalsmith.trace import NormalizedTrace
+from evalkeep.config import RedactionConfig
+from evalkeep.redaction import RedactionRule, RedactionSummary, Redactor, is_secret_field
+from evalkeep.trace import NormalizedTrace
 
 
 @pytest.fixture

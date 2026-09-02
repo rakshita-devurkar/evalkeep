@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from evalsmith.regression import (
+from evalkeep.regression import (
     Contradiction,
     Expectation,
     ExpectationType,

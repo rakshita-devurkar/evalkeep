@@ -1,18 +1,18 @@
-# Evalsmith
+# Evalkeep
 
 **Turn real AI-agent failures into reviewed regression tests, and measure whether
 later versions fix or reintroduce them.**
 
 AI applications produce thousands of production traces. Existing eval tools can
 *execute* tests, but teams still have to decide which failures deserve permanent
-coverage. Evalsmith owns that decision:
+coverage. Evalkeep owns that decision:
 
 ```
 trace → failure evidence → failure family → representative case
       → reviewed regression test → runner execution → trustworthy comparison
 ```
 
-Evalsmith does not execute your agent. It generates tests, delegates execution to
+Evalkeep does not execute your agent. It generates tests, delegates execution to
 [Promptfoo](https://promptfoo.dev), and compares baseline against candidate runs.
 
 ## Status
@@ -22,67 +22,67 @@ to a statistically-honest regression report.
 
 | Command | Status |
 | --- | --- |
-| `evalsmith version` | ✅ |
-| `evalsmith init` | ✅ |
-| `evalsmith ingest` | ✅ |
-| `evalsmith trace list` / `trace show` | ✅ |
-| `evalsmith detect` | ✅ |
-| `evalsmith failures list` / `show` / `confirm` / `dismiss` / `add` | ✅ |
-| `evalsmith analyze` / `failures label` | ✅ |
-| `evalsmith discover` | ✅ |
-| `evalsmith clusters list` / `show` / `rename` / `merge` / `split` / `dismiss` | ✅ |
-| `evalsmith dataset build` / `list` / `show` | ✅ |
-| `evalsmith review` | ✅ |
-| `evalsmith dataset approve` / `reject` / `edit` | ✅ |
-| `evalsmith targets add` / `list` / `show` / `remove` | ✅ |
-| `evalsmith export` | ✅ |
-| `evalsmith run --target ...` | ✅ |
-| `evalsmith compare` | ✅ |
-| `evalsmith runs list` / `show` | ✅ |
-| `evalsmith baseline promote` / `show` | ✅ |
-| `evalsmith dataset build` / `list` / `show` | ✅ |
-| `evalsmith review` | ✅ |
-| `evalsmith dataset approve` / `reject` / `edit` | ✅ |
-| `evalsmith targets add` / `list` / `show` / `remove` | ✅ |
-| `evalsmith export` | ✅ |
-| `evalsmith run --target ...` | ✅ |
-| `evalsmith compare` | ✅ |
-| `evalsmith runs list` / `show` | ✅ |
-| `evalsmith baseline promote` / `show` | ✅ |
-| `evalsmith review` | ✅ |
-| `evalsmith dataset approve` / `reject` / `edit` | ✅ |
-| `evalsmith targets add` / `list` / `show` / `remove` | ✅ |
-| `evalsmith export` | ✅ |
-| `evalsmith run --target ...` | ✅ |
-| `evalsmith compare` | ✅ |
-| `evalsmith runs list` / `show` | ✅ |
-| `evalsmith baseline promote` / `show` | ✅ |
-| `evalsmith targets add` / `list` / `show` / `remove` | ✅ |
-| `evalsmith export` | ✅ |
-| `evalsmith run --target ...` | ✅ |
-| `evalsmith compare` | ✅ |
-| `evalsmith runs list` / `show` | ✅ |
-| `evalsmith baseline promote` / `show` | ✅ |
-| `evalsmith run` / `compare` | planned |
+| `evalkeep version` | ✅ |
+| `evalkeep init` | ✅ |
+| `evalkeep ingest` | ✅ |
+| `evalkeep trace list` / `trace show` | ✅ |
+| `evalkeep detect` | ✅ |
+| `evalkeep failures list` / `show` / `confirm` / `dismiss` / `add` | ✅ |
+| `evalkeep analyze` / `failures label` | ✅ |
+| `evalkeep discover` | ✅ |
+| `evalkeep clusters list` / `show` / `rename` / `merge` / `split` / `dismiss` | ✅ |
+| `evalkeep dataset build` / `list` / `show` | ✅ |
+| `evalkeep review` | ✅ |
+| `evalkeep dataset approve` / `reject` / `edit` | ✅ |
+| `evalkeep targets add` / `list` / `show` / `remove` | ✅ |
+| `evalkeep export` | ✅ |
+| `evalkeep run --target ...` | ✅ |
+| `evalkeep compare` | ✅ |
+| `evalkeep runs list` / `show` | ✅ |
+| `evalkeep baseline promote` / `show` | ✅ |
+| `evalkeep dataset build` / `list` / `show` | ✅ |
+| `evalkeep review` | ✅ |
+| `evalkeep dataset approve` / `reject` / `edit` | ✅ |
+| `evalkeep targets add` / `list` / `show` / `remove` | ✅ |
+| `evalkeep export` | ✅ |
+| `evalkeep run --target ...` | ✅ |
+| `evalkeep compare` | ✅ |
+| `evalkeep runs list` / `show` | ✅ |
+| `evalkeep baseline promote` / `show` | ✅ |
+| `evalkeep review` | ✅ |
+| `evalkeep dataset approve` / `reject` / `edit` | ✅ |
+| `evalkeep targets add` / `list` / `show` / `remove` | ✅ |
+| `evalkeep export` | ✅ |
+| `evalkeep run --target ...` | ✅ |
+| `evalkeep compare` | ✅ |
+| `evalkeep runs list` / `show` | ✅ |
+| `evalkeep baseline promote` / `show` | ✅ |
+| `evalkeep targets add` / `list` / `show` / `remove` | ✅ |
+| `evalkeep export` | ✅ |
+| `evalkeep run --target ...` | ✅ |
+| `evalkeep compare` | ✅ |
+| `evalkeep runs list` / `show` | ✅ |
+| `evalkeep baseline promote` / `show` | ✅ |
+| `evalkeep run` / `compare` | planned |
 
 ## Quick start
 
 ```bash
-git clone https://github.com/<you>/evalsmith && cd evalsmith
+git clone https://github.com/<you>/evalkeep && cd evalkeep
 uv sync
-uv run evalsmith init
+uv run evalkeep init
 ```
 
 `init` is idempotent — re-running it fills in whatever is missing and leaves
 everything else alone. It creates:
 
 ```
-evalsmith.yaml        project configuration (commit this)
-.evalsmith/database.db  redacted traces and events
-.evalsmith/data/      intermediate artifacts
-.evalsmith/cache/     analyzer and embedding caches
-.evalsmith/runs/      raw Promptfoo run outputs
-.evalsmith/exports/   generated export files
+evalkeep.yaml        project configuration (commit this)
+.evalkeep/database.db  redacted traces and events
+.evalkeep/data/      intermediate artifacts
+.evalkeep/cache/     analyzer and embedding caches
+.evalkeep/runs/      raw Promptfoo run outputs
+.evalkeep/exports/   generated export files
 ```
 
 and appends the state paths to `.gitignore`. **Approved tests and configuration
@@ -91,76 +91,76 @@ belong in Git; raw traces, the database, caches and run outputs do not.**
 Then ingest some traces:
 
 ```bash
-uv run evalsmith ingest examples/refund-agent/traces.jsonl --validate-only  # check the file
-uv run evalsmith ingest examples/refund-agent/traces.jsonl --dry-run        # check against storage
-uv run evalsmith ingest examples/refund-agent/traces.jsonl                  # redact and store
-uv run evalsmith trace list
-uv run evalsmith trace show trace-1042
+uv run evalkeep ingest examples/refund-agent/traces.jsonl --validate-only  # check the file
+uv run evalkeep ingest examples/refund-agent/traces.jsonl --dry-run        # check against storage
+uv run evalkeep ingest examples/refund-agent/traces.jsonl                  # redact and store
+uv run evalkeep trace list
+uv run evalkeep trace show trace-1042
 ```
 
 Then find the failures in them:
 
 ```bash
-uv run evalsmith detect
-uv run evalsmith failures list
-uv run evalsmith failures show trace-1042
-uv run evalsmith failures confirm trace-1042 --reason "refunded the oldest order"
+uv run evalkeep detect
+uv run evalkeep failures list
+uv run evalkeep failures show trace-1042
+uv run evalkeep failures confirm trace-1042 --reason "refunded the oldest order"
 ```
 
 Then describe them, so similar failures can be grouped:
 
 ```bash
 # With no API key, label by hand — this is a first-class path, not a fallback:
-uv run evalsmith failures label trace-1042 \
+uv run evalkeep failures label trace-1042 \
   --type wrong_tool_argument --component tool_arguments --severity high \
   --summary "Refunded the oldest order instead of the newest."
 
-# With analyzer.provider set in evalsmith.yaml:
-uv run evalsmith analyze
+# With analyzer.provider set in evalkeep.yaml:
+uv run evalkeep analyze
 ```
 
 Then group them into families and pick who represents each:
 
 ```bash
-uv run evalsmith discover
-uv run evalsmith clusters list
-uv run evalsmith clusters show <cluster-id>
-uv run evalsmith clusters rename <cluster-id> "Refunds the wrong order"
+uv run evalkeep discover
+uv run evalkeep clusters list
+uv run evalkeep clusters show <cluster-id>
+uv run evalkeep clusters rename <cluster-id> "Refunds the wrong order"
 ```
 
 Then draft a regression test for each family's representatives:
 
 ```bash
-uv run evalsmith dataset build
-uv run evalsmith dataset list
-uv run evalsmith dataset show trace-1042
+uv run evalkeep dataset build
+uv run evalkeep dataset list
+uv run evalkeep dataset show trace-1042
 ```
 
 Then review them. Nothing is exported until a person approves it:
 
 ```bash
-uv run evalsmith review
+uv run evalkeep review
 ```
 
 Then run the approved suite against your agents:
 
 ```bash
-uv run evalsmith targets add baseline  --type python --path agents/baseline.py  --function call_api
-uv run evalsmith targets add candidate --type python --path agents/candidate.py --function call_api
-uv run evalsmith run --target baseline
-uv run evalsmith run --target candidate
+uv run evalkeep targets add baseline  --type python --path agents/baseline.py  --function call_api
+uv run evalkeep targets add candidate --type python --path agents/candidate.py --function call_api
+uv run evalkeep run --target baseline
+uv run evalkeep run --target candidate
 ```
 
 Then find out whether the change helped:
 
 ```bash
-uv run evalsmith compare
-uv run evalsmith baseline promote <run-id> --reason "shipped"
+uv run evalkeep compare
+uv run evalkeep baseline promote <run-id> --reason "shipped"
 ```
 
 ## Trace format
 
-Evalsmith reads newline-delimited JSON, one trace object per line. The smallest
+Evalkeep reads newline-delimited JSON, one trace object per line. The smallest
 valid trace is three fields:
 
 ```json
@@ -197,7 +197,7 @@ Validation streams, so file size is not a limit — 100k traces validate in abou
 each one is reported and the rest keep going:
 
 ```console
-$ evalsmith ingest traces.jsonl --validate-only --errors errors.jsonl
+$ evalkeep ingest traces.jsonl --validate-only --errors errors.jsonl
 line  kind          field          problem
    2  json                         invalid JSON: Expecting value at column 33
    3  duplicate_id                 trace_id 'trace-1' already appeared earlier in this file
@@ -223,7 +223,7 @@ to an analyzer only ever hold redacted values.
 | `token_prefixes` | `sk-`, `ghp_`, `xox*-`, `AKIA`, `AIza`, JWTs, `Bearer …` | `[REDACTED:token]` |
 | `secret_field_names` | Values under keys like `api_key`, `password`, `authorization` | `[REDACTED:secret_field]` |
 
-Toggle any rule in `evalsmith.yaml`. The rules err toward over-redaction — a
+Toggle any rule in `evalkeep.yaml`. The rules err toward over-redaction — a
 redacted order number is an inconvenience, a stored API key is an incident —
 with two deliberate exceptions that keep the data usable:
 
@@ -244,7 +244,7 @@ is exactly what clustering wants.
 
 ## Failure detection
 
-`evalsmith detect` runs every detector over every stored trace and records what
+`evalkeep detect` runs every detector over every stored trace and records what
 they found. Detectors report **evidence**, never inference — a signal points at
 something a person or an evaluator actually recorded:
 
@@ -259,7 +259,7 @@ reviewer can check the claim rather than take it on trust.
 
 **Signals are counted, not scored.** A trace with three signals is better
 documented than one with a single signal — it is not "more likely" to be a
-failure, and Evalsmith will not print a number implying otherwise. In the same
+failure, and Evalkeep will not print a number implying otherwise. In the same
 spirit, `negative_feedback` fires only on an explicit `negative` rating: a bare
 numeric score arrives without its scale, and thresholding it would be a guess
 dressed up as evidence.
@@ -282,9 +282,9 @@ Re-running `detect` is always safe, because of four rules:
 ### Review
 
 ```bash
-evalsmith failures confirm <id> --reason "refunded the oldest order"
-evalsmith failures dismiss <id> --reason "synthetic test data"
-evalsmith failures add trace-1060 --reason "detectors cannot see this one"
+evalkeep failures confirm <id> --reason "refunded the oldest order"
+evalkeep failures dismiss <id> --reason "synthetic test data"
+evalkeep failures add trace-1060 --reason "detectors cannot see this one"
 ```
 
 `confirm`, `dismiss` and `add` all record who decided and when. Dismissed
@@ -305,23 +305,23 @@ three analysts would name three different ways.
 ### Analysis works with no API key
 
 `analyzer.provider` defaults to `manual`, which is **the absence of a provider,
-not a provider that guesses**. Evalsmith produces a fully labelled dataset
+not a provider that guesses**. Evalkeep produces a fully labelled dataset
 offline; it just asks a person for the labels:
 
 ```bash
-evalsmith failures label <id> --type wrong_tool_argument \
+evalkeep failures label <id> --type wrong_tool_argument \
   --component tool_arguments --severity high --summary "..."
 ```
 
 | Provider | What it does |
 | --- | --- |
 | `manual` (default) | No automatic analysis; label by hand |
-| `anthropic` | Claude via the Messages API, constrained to the schema. Needs `ANTHROPIC_API_KEY` and `pip install 'evalsmith[anthropic]'` |
+| `anthropic` | Claude via the Messages API, constrained to the schema. Needs `ANTHROPIC_API_KEY` and `pip install 'evalkeep[anthropic]'` |
 | `stub` | Deterministic placeholder for offline development; its output is stamped `stub` so nothing mistakes it for judgement |
 
 ### Caching, and why the key has three parts
 
-Answers are cached under `.evalsmith/cache/`, keyed by the **trace content**,
+Answers are cached under `.evalkeep/cache/`, keyed by the **trace content**,
 **which analyst** produced it, and **which prompt version** was asked. Change any
 one and the key changes, so a prompt edit or a model swap never serves a stale
 label — and re-running after a database reset costs nothing. Editing the prompt
@@ -351,7 +351,7 @@ label can be checked against what the model actually said.
 
 ## Clustering and representatives
 
-`evalsmith discover` embeds each analyzed failure, groups them into families,
+`evalkeep discover` embeds each analyzed failure, groups them into families,
 and selects representatives — the point of the whole exercise, since a
 regression suite wants one good test per failure family, not forty copies of the
 same bug.
@@ -395,7 +395,7 @@ That is the error worth having: an over-split family costs an extra
 representative test, while a false merge would leave a real failure family with
 no coverage at all. `clusters merge` exists for exactly this.
 
-A hosted embedding model plugs in at `evalsmith/embeddings/__init__.py`:
+A hosted embedding model plugs in at `evalkeep/embeddings/__init__.py`:
 implement the four-member `EmbeddingProvider` protocol and register it. The
 cache and the stored run parameters key off the provider's `identity`, so
 vectors from two different models can never be silently mixed.
@@ -419,10 +419,10 @@ see is one, and join two that a person can see are not. Editing is therefore a
 first-class operation:
 
 ```bash
-evalsmith clusters merge <id> <id>              # these are really one family
-evalsmith clusters split <id> --failure <id>    # this one does not belong
-evalsmith clusters rename <id> "Refunds the wrong order"
-evalsmith clusters dismiss <id>                 # not worth regression coverage
+evalkeep clusters merge <id> <id>              # these are really one family
+evalkeep clusters split <id> --failure <id>    # this one does not belong
+evalkeep clusters rename <id> "Refunds the wrong order"
+evalkeep clusters dismiss <id>                 # not worth regression coverage
 ```
 
 **A cluster's identity is derived from its members**, which is what lets edits
@@ -447,7 +447,7 @@ HDBSCAN, on the 0.2 roadmap, is the fix.
 
 ## Regression tests
 
-`evalsmith dataset build` turns each cluster representative into a **pending
+`evalkeep dataset build` turns each cluster representative into a **pending
 draft**. Only representatives, by default — that is the point of clustering: a
 suite wants one good test per failure family, not forty copies of one bug.
 `--all` covers every failure instead.
@@ -519,7 +519,7 @@ the generator version. Re-running is a no-op; `--regenerate` rewrites drafts and
 
 ## Review
 
-`evalsmith review` walks the pending drafts, showing all three things a decision
+`evalkeep review` walks the pending drafts, showing all three things a decision
 needs on one screen — **the source interaction, the failure analysis, and the
 proposed test** — and asks:
 
@@ -535,9 +535,9 @@ record the same decisions without a terminal — which is what keeps the guide's
 non-interactive review format possible later:
 
 ```bash
-evalsmith dataset approve <id> --reviewer alex --reason "..."
-evalsmith dataset reject  <id> --reviewer alex --reason "synthetic data"
-evalsmith dataset edit    <id> --file edited.yaml
+evalkeep dataset approve <id> --reviewer alex --reason "..."
+evalkeep dataset reject  <id> --reviewer alex --reason "synthetic data"
+evalkeep dataset edit    <id> --file edited.yaml
 ```
 
 ### Editing
@@ -590,7 +590,7 @@ sometimes the right test, and that call belongs to the reviewer.
 
 ## Targets and execution
 
-Evalsmith does not execute agents. It hands an established runner a suite and
+Evalkeep does not execute agents. It hands an established runner a suite and
 reads the results back — that division is the whole point of the project, and
 `run` is a translation layer, not an eval engine.
 
@@ -603,7 +603,7 @@ contains something that looks like a credential is refused, and the same
 detectors that redact traces do the looking.
 
 ```bash
-evalsmith targets add candidate --type http \
+evalkeep targets add candidate --type http \
   --url https://agent.example.com/chat \
   --body '{"message": "{{input}}"}' \
   --header 'Authorization=${AGENT_TOKEN}' \
@@ -666,7 +666,7 @@ check runs against the real Promptfoo and is opt-in, since it downloads Node
 packages:
 
 ```bash
-EVALSMITH_E2E=1 uv run pytest tests/test_export_run.py::TestAgainstTheRealRunner
+EVALKEEP_E2E=1 uv run pytest tests/test_export_run.py::TestAgainstTheRealRunner
 ```
 
 The generated JavaScript assertions are themselves tested by executing them in
@@ -676,7 +676,7 @@ that made **every tool assertion silently pass**.
 
 ## Comparison
 
-`evalsmith compare` aligns two runs by stable test ID and classifies every pair
+`evalkeep compare` aligns two runs by stable test ID and classifies every pair
 — the guide's truth table, with its two error rows made explicit:
 
 | Baseline | Candidate | Classification |
@@ -727,7 +727,7 @@ An interval appears once at least 10 tests have changed outcome.
 run for the `baseline` target only if nothing has ever been promoted.
 
 ```bash
-evalsmith baseline promote <run-id> --reviewer alex --reason "shipped"
+evalkeep baseline promote <run-id> --reviewer alex --reason "shipped"
 ```
 
 Promotions are an append-only record of who decided and when — which run was the
@@ -740,7 +740,7 @@ For CI, `compare --fail-on-regression` exits non-zero when any test regressed.
 ## Storage
 
 Ingested traces, their failure records and the current clustering go into
-SQLite at `.evalsmith/database.db`, applied through versioned migrations
+SQLite at `.evalkeep/database.db`, applied through versioned migrations
 recorded in a `schema_migrations` table. The redacted trace
 is stored whole as JSON and is the source of truth; its events are also written
 as rows in the same transaction, as a derived index so detection can ask which

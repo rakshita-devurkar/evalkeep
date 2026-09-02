@@ -1,0 +1,174 @@
+"""Project configuration and the on-disk layout created by ``evalkeep init``.
+
+Everything Evalkeep writes lives under a single state directory
+(``.evalkeep/`` by default) so that a project can be inspected, backed up or
+deleted in one step. Only ``evalkeep.yaml`` is meant to be committed; the
+state directory holds raw traces, the database, caches and run outputs, all of
+which stay out of Git (see the generated ``.gitignore`` entries).
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import yaml
+from pydantic import BaseModel, Field, ValidationError
+
+from evalkeep.errors import CommandError
+
+CONFIG_FILENAME = "evalkeep.yaml"
+STATE_DIRNAME = ".evalkeep"
+
+#: Bumped when the on-disk layout changes in a way that needs a migration.
+CONFIG_VERSION = 1
+
+#: Subdirectories of the state directory, with the purpose of each.
+STATE_SUBDIRS: dict[str, str] = {
+    "data": "Redacted trace payloads and intermediate artifacts.",
+    "cache": "Analyzer and embedding caches, keyed by content hash.",
+    "runs": "Raw Promptfoo run outputs, one directory per run.",
+    "exports": "Generated export files (generic JSONL, Promptfoo YAML).",
+}
+
+#: Paths excluded from Git. Approved tests and config are committed; traces,
+#: the database, caches and run outputs are not.
+GITIGNORE_ENTRIES: tuple[str, ...] = (
+    ".env",
+    f"{STATE_DIRNAME}/database.db",
+    f"{STATE_DIRNAME}/data/",
+    f"{STATE_DIRNAME}/cache/",
+    f"{STATE_DIRNAME}/runs/",
+)
+
+GITIGNORE_HEADER = "# evalkeep"
+
+
+class RedactionConfig(BaseModel):
+    """Which built-in redactors run before anything is written to storage."""
+
+    emails: bool = True
+    phone_numbers: bool = True
+    payment_cards: bool = True
+    token_prefixes: bool = True
+    secret_field_names: bool = True
+
+
+class AnalyzerConfig(BaseModel):
+    """Which provider describes failures, if any.
+
+    ``manual`` is the default: Evalkeep runs fully offline and failures are
+    labelled by hand until a provider is configured.
+    """
+
+    provider: str = "manual"
+    model: str = "claude-opus-5"
+    effort: str = "medium"
+    max_tokens: int = 16000
+
+
+class ClusteringConfig(BaseModel):
+    """How failures are embedded and grouped.
+
+    Every field is stored with the clustering run that used it, so a grouping
+    can always be reproduced or explained.
+    """
+
+    embedder: str = "hashing"
+    dimensions: int = 512
+    #: Recorded and applied even where the algorithm is deterministic, so that
+    #: swapping in a randomized one later cannot quietly break reproducibility.
+    seed: int = 0
+    algorithm: str = "agglomerative"
+    metric: str = "cosine"
+    linkage: str = "average"
+    #: Cosine distance above which two failures are different families.
+    threshold: float = 0.55
+
+
+class RunnerConfig(BaseModel):
+    """How to invoke the execution engine.
+
+    ``command`` is an argument list, never a string: it is passed straight to
+    the process without a shell, so nothing in a trace can be interpreted as a
+    shell metacharacter.
+    """
+
+    command: list[str] = Field(default_factory=lambda: ["npx", "--yes", "promptfoo@0.122.2"])
+    timeout_seconds: int = 900
+
+
+class ProjectConfig(BaseModel):
+    """The contents of ``evalkeep.yaml``."""
+
+    version: int = CONFIG_VERSION
+    project_name: str = "evalkeep-project"
+    state_dir: str = STATE_DIRNAME
+    redaction: RedactionConfig = Field(default_factory=RedactionConfig)
+    analyzer: AnalyzerConfig = Field(default_factory=AnalyzerConfig)
+    clustering: ClusteringConfig = Field(default_factory=ClusteringConfig)
+    runner: RunnerConfig = Field(default_factory=RunnerConfig)
+
+    def to_yaml(self) -> str:
+        return yaml.safe_dump(
+            self.model_dump(mode="json"), sort_keys=False, default_flow_style=False
+        )
+
+    @classmethod
+    def from_yaml(cls, text: str, *, source: Path | None = None) -> ProjectConfig:
+        where = f" in {source}" if source is not None else ""
+        try:
+            raw: Any = yaml.safe_load(text)
+        except yaml.YAMLError as exc:
+            raise CommandError(f"Could not parse YAML{where}: {exc}") from exc
+        if raw is None:
+            raw = {}
+        if not isinstance(raw, dict):
+            raise CommandError(f"Expected a YAML mapping{where}, got {type(raw).__name__}.")
+        try:
+            return cls.model_validate(raw)
+        except ValidationError as exc:
+            raise CommandError(f"Invalid configuration{where}:\n{exc}") from exc
+
+
+class Project:
+    """Resolved paths for one Evalkeep project rooted at ``root``."""
+
+    def __init__(self, root: Path, config: ProjectConfig) -> None:
+        self.root = root
+        self.config = config
+
+    @property
+    def config_path(self) -> Path:
+        return self.root / CONFIG_FILENAME
+
+    @property
+    def state_dir(self) -> Path:
+        return self.root / self.config.state_dir
+
+    @property
+    def database_path(self) -> Path:
+        return self.state_dir / "database.db"
+
+    def subdir(self, name: str) -> Path:
+        return self.state_dir / name
+
+    @classmethod
+    def load(cls, root: Path) -> Project:
+        """Load an initialized project, or explain how to create one."""
+        config_path = root / CONFIG_FILENAME
+        if not config_path.is_file():
+            raise CommandError(
+                f"No {CONFIG_FILENAME} found in {root}.",
+                hint="Run 'evalkeep init' first.",
+            )
+        config = ProjectConfig.from_yaml(
+            config_path.read_text(encoding="utf-8"), source=config_path
+        )
+        if config.version > CONFIG_VERSION:
+            raise CommandError(
+                f"{config_path} was written by a newer Evalkeep "
+                f"(config version {config.version}, this build understands {CONFIG_VERSION}).",
+                hint="Upgrade evalkeep.",
+            )
+        return cls(root, config)

@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from evalsmith.commands.target_cmd import add_target, list_targets, remove_target, show_target
-from evalsmith.errors import CommandError
-from evalsmith.targets import (
+from evalkeep.commands.target_cmd import add_target, list_targets, remove_target, show_target
+from evalkeep.errors import CommandError
+from evalkeep.targets import (
     Target,
     TargetKind,
     find_secrets,
@@ -116,7 +116,7 @@ class TestShapeValidation:
 
 class TestPersistence:
     def test_targets_round_trip(self, tmp_path: Path) -> None:
-        from evalsmith.targets import TargetFile
+        from evalkeep.targets import TargetFile
 
         original = TargetFile(targets={"candidate": http_target()})
         save_targets(tmp_path, original)
@@ -138,7 +138,7 @@ class TestPersistence:
             load_targets(tmp_path)
 
     def test_an_unknown_target_lists_the_known_ones(self, tmp_path: Path) -> None:
-        from evalsmith.targets import TargetFile
+        from evalkeep.targets import TargetFile
 
         save_targets(tmp_path, TargetFile(targets={"candidate": http_target()}))
         with pytest.raises(CommandError) as raised:

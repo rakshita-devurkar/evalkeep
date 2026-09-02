@@ -4,7 +4,7 @@ A deterministic, synthetic dataset for a shopping agent that handles refunds.
 It requires no API key and no network, and it is the dataset the end-to-end
 acceptance test runs against.
 
-`traces.jsonl` holds five traces in the generic Evalsmith format:
+`traces.jsonl` holds five traces in the generic Evalkeep format:
 
 | Trace | What happened | Failure evidence |
 | --- | --- | --- |
@@ -21,7 +21,7 @@ pair to group and a distinct case to keep separate.
 Validate it:
 
 ```bash
-uv run evalsmith ingest examples/refund-agent/traces.jsonl --validate-only
+uv run evalkeep ingest examples/refund-agent/traces.jsonl --validate-only
 ```
 
 No real customer data appears here. `shopper@example.com` is a reserved example
