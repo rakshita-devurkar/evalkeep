@@ -236,6 +236,27 @@ MIGRATIONS: tuple[Migration, ...] = (
             "CREATE INDEX test_results_outcome ON test_results(outcome)",
         ),
     ),
+    Migration(
+        version=8,
+        name="baseline promotions",
+        statements=(
+            # An append-only record rather than a flag: which run was the
+            # baseline, when, and who decided, is exactly the kind of history a
+            # regression argument later depends on.
+            """
+            CREATE TABLE baseline_promotions (
+                promotion_id TEXT PRIMARY KEY,
+                run_id       TEXT NOT NULL
+                             REFERENCES evaluation_runs(run_id) ON DELETE CASCADE,
+                target_id    TEXT NOT NULL,
+                promoted_at  TEXT NOT NULL,
+                reviewer     TEXT NOT NULL,
+                reason       TEXT
+            )
+            """,
+            "CREATE INDEX baseline_promotions_time ON baseline_promotions(promoted_at)",
+        ),
+    ),
 )
 
 LATEST_VERSION = max(migration.version for migration in MIGRATIONS)

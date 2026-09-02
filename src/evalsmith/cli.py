@@ -21,6 +21,13 @@ from evalsmith.adapters import DEFAULT_ADAPTER, available_adapters
 from evalsmith.analysis import Component, FailureType, Severity
 from evalsmith.analysis_run import AnalysisReport
 from evalsmith.commands.analyze_cmd import label_failure, run_analysis
+from evalsmith.commands.compare_cmd import (
+    compare,
+    current_baseline,
+    list_runs,
+    promote_baseline,
+    show_run,
+)
 from evalsmith.commands.dataset_cmd import BuildReport, build_dataset, list_tests, show_test
 from evalsmith.commands.detect_cmd import (
     FailureDetail,
@@ -55,6 +62,7 @@ from evalsmith.commands.review_cmd import (
 from evalsmith.commands.run_cmd import ExportResult, export_suite, run_suite
 from evalsmith.commands.target_cmd import add_target, list_targets, remove_target, show_target
 from evalsmith.commands.trace_cmd import list_traces, show_trace
+from evalsmith.comparison import Classification, ComparisonReport
 from evalsmith.detection import DetectionReport
 from evalsmith.discovery import DiscoveryReport
 from evalsmith.errors import CommandError, EvalsmithError, ExitCode
@@ -64,7 +72,7 @@ from evalsmith.ingest import DEFAULT_SAMPLE_LIMIT, IngestMode, IngestReport
 from evalsmith.regression import RegressionTest, ReviewStatus
 from evalsmith.review import ReviewDecision, ReviewOutcome
 from evalsmith.runner import RunOutcome
-from evalsmith.runs import Outcome
+from evalsmith.runs import CaseResult, EvaluationRun, Outcome
 from evalsmith.storage import StoredTrace
 from evalsmith.targets import TargetKind
 
@@ -94,6 +102,12 @@ targets_app = typer.Typer(
     name="targets", help="Configure the agents under test.", no_args_is_help=True
 )
 app.add_typer(targets_app)
+runs_app = typer.Typer(name="runs", help="Inspect evaluation runs.", no_args_is_help=True)
+app.add_typer(runs_app)
+baseline_app = typer.Typer(
+    name="baseline", help="The run everything is compared against.", no_args_is_help=True
+)
+app.add_typer(baseline_app)
 
 console = Console()
 err_console = Console(stderr=True)
@@ -1241,6 +1255,240 @@ def _render_run(outcome: RunOutcome) -> None:
             "a test that failed.[/]"
         )
     console.print(f"\n[dim]Results stored under {outcome.run.output_dir}[/]")
+
+
+@app.command("compare")
+def compare_runs(
+    project: Path = PROJECT_OPTION,
+    baseline: str | None = typer.Option(
+        None, "--baseline", help="Run ID or target name. Defaults to the promoted baseline."
+    ),
+    candidate: str | None = typer.Option(
+        None, "--candidate", help="Run ID or target name. Defaults to the newest candidate run."
+    ),
+    allow_suite_drift: bool = typer.Option(
+        False, "--allow-suite-drift", help="Compare only the tests both runs share."
+    ),
+    fail_on_regression: bool = typer.Option(
+        False, "--fail-on-regression", help="Exit non-zero when any test regressed."
+    ),
+) -> None:
+    """Compare baseline and candidate result sets."""
+    report = _run(
+        lambda: compare(
+            project_root=project,
+            baseline=baseline,
+            candidate=candidate,
+            allow_suite_drift=allow_suite_drift,
+        )
+    )
+    _render_comparison(report)
+    if fail_on_regression and report.regressions:
+        raise typer.Exit(ExitCode.RECORD_ERRORS)
+
+
+@runs_app.command("list")
+def runs_list(
+    project: Path = PROJECT_OPTION,
+    limit: int = typer.Option(20, "--limit", min=1, help="Rows to show."),
+) -> None:
+    """List evaluation runs, newest first."""
+    summaries = _run(lambda: list_runs(project_root=project, limit=limit))
+    if not summaries:
+        console.print("[dim]No runs. Run 'evalsmith run --target baseline'.[/]")
+        return
+
+    table = Table(box=None, pad_edge=False)
+    table.add_column("run", style="cyan", overflow="fold")
+    table.add_column("target")
+    table.add_column("pass", justify="right")
+    table.add_column("fail", justify="right")
+    table.add_column("error", justify="right")
+    table.add_column("suite", style="dim")
+    table.add_column("", style="dim")
+    for summary in summaries:
+        table.add_row(
+            summary.run.run_id[:12],
+            summary.run.target_id,
+            str(summary.counts.get(Outcome.PASS, 0)),
+            str(summary.counts.get(Outcome.FAIL, 0)),
+            str(summary.counts.get(Outcome.ERROR, 0)),
+            summary.run.suite_hash.removeprefix("sha256:")[:8],
+            "baseline" if summary.is_baseline else "",
+        )
+    console.print(table)
+
+
+@runs_app.command("show")
+def runs_show(
+    run_id: str = typer.Argument(..., metavar="RUN_ID"),
+    project: Path = PROJECT_OPTION,
+) -> None:
+    """Inspect one run and its per-test results."""
+    run, results = _run(lambda: show_run(run_id, project_root=project))
+    _render_run_detail(run, results)
+
+
+@baseline_app.command("promote")
+def baseline_promote(
+    run_id: str = typer.Argument(..., metavar="RUN_ID"),
+    project: Path = PROJECT_OPTION,
+    reviewer: str | None = typer.Option(None, "--reviewer", help="Who is deciding."),
+    reason: str | None = typer.Option(None, "--reason", help="Why."),
+) -> None:
+    """Make a run the reference point. Never automatic."""
+    promotion = _run(
+        lambda: promote_baseline(run_id, project_root=project, reviewer=reviewer, reason=reason)
+    )
+    console.print(
+        f"[bold green]promoted[/] {promotion.run_id[:12]} "
+        f"({promotion.target_id}) by {promotion.reviewer}"
+    )
+
+
+@baseline_app.command("show")
+def baseline_show(project: Path = PROJECT_OPTION) -> None:
+    """Show which run is currently the baseline."""
+    current = _run(lambda: current_baseline(project_root=project))
+    if current is None:
+        console.print(
+            "[dim]No baseline has been promoted. Comparisons fall back to the "
+            "newest run for the 'baseline' target.[/]"
+        )
+        return
+    promotion, run = current
+    table = Table(box=None, pad_edge=False, show_header=False)
+    table.add_column(style="bold")
+    table.add_column()
+    table.add_row("run", run.run_id)
+    table.add_row("target", run.target_id)
+    table.add_row("suite", run.suite_hash)
+    table.add_row("promoted", promotion.promoted_at.isoformat())
+    table.add_row("by", promotion.reviewer)
+    if promotion.reason:
+        table.add_row("reason", promotion.reason)
+    console.print(table)
+
+
+_CLASSIFICATION_STYLES: dict[Classification, str] = {
+    Classification.UNCHANGED_PASS: "green",
+    Classification.FIXED: "bold green",
+    Classification.REGRESSION: "bold red",
+    Classification.UNCHANGED_FAILURE: "red",
+    Classification.NOT_COMPARABLE: "yellow",
+    Classification.MISSING: "yellow",
+}
+
+
+def _render_run_detail(run: EvaluationRun, results: list[CaseResult]) -> None:
+    header = Table(box=None, pad_edge=False, show_header=False)
+    header.add_column(style="bold")
+    header.add_column()
+    header.add_row("run", run.run_id)
+    header.add_row("target", run.target_id)
+    header.add_row("suite", run.suite_hash)
+    header.add_row("runner", run.runner or "unknown")
+    header.add_row("started", run.started_at.isoformat())
+    console.print(header)
+
+    table = Table(box=None, pad_edge=False)
+    table.add_column("test_id", style="cyan", overflow="fold")
+    table.add_column("outcome")
+    table.add_column("detail", style="dim")
+    for result in results:
+        style = {"pass": "green", "fail": "red", "error": "yellow"}[result.outcome.value]
+        detail = ""
+        if result.outcome is Outcome.ERROR:
+            detail = result.error_kind.value if result.error_kind else "error"
+        elif result.failed_assertions:
+            detail = result.failed_assertions[0].splitlines()[0]
+        table.add_row(result.test_id, f"[{style}]{result.outcome.value}[/]", detail)
+    console.print("\n")
+    console.print(table)
+
+
+def _render_comparison(report: ComparisonReport) -> None:
+    counts = report.counts
+    header = Table(box=None, pad_edge=False, show_header=False)
+    header.add_column(style="bold")
+    header.add_column()
+    header.add_row(
+        "baseline", f"{report.baseline_run.run_id[:12]} ({report.baseline_run.target_id})"
+    )
+    header.add_row(
+        "candidate", f"{report.candidate_run.run_id[:12]} ({report.candidate_run.target_id})"
+    )
+    if not report.suite_compatible:
+        header.add_row("suite", "[yellow]differs; comparing shared tests only[/]")
+    console.print(header)
+
+    table = Table(box=None, pad_edge=False, show_header=False)
+    table.add_column(style="bold")
+    table.add_column(justify="right")
+    for classification in Classification:
+        count = counts.get(classification, 0)
+        if not count and classification in (
+            Classification.NOT_COMPARABLE,
+            Classification.MISSING,
+        ):
+            continue
+        label = classification.value.replace("_", " ")
+        style = _CLASSIFICATION_STYLES[classification]
+        table.add_row(label, f"[{style}]{count}[/]" if count else "0")
+    console.print("\n")
+    console.print(table)
+
+    for comparison in report.regressions:
+        console.print(f"[bold red]regression[/] {comparison.test_id}")
+    for comparison in report.fixes:
+        console.print(f"[bold green]fixed[/] {comparison.test_id}")
+    for comparison in report.excluded:
+        console.print(f"[yellow]excluded[/] {comparison.test_id} [dim]({comparison.reason})[/]")
+
+    _render_statistics(report)
+
+
+def _render_statistics(report: ComparisonReport) -> None:
+    baseline_rate = report.baseline_pass_rate
+    candidate_rate = report.candidate_pass_rate
+    if baseline_rate is None or candidate_rate is None:
+        console.print("\n[yellow]No comparable tests.[/] Nothing can be concluded.")
+        return
+
+    statistics = report.statistics
+    table = Table(box=None, pad_edge=False, show_header=False)
+    table.add_column(style="bold")
+    table.add_column(justify="right")
+    table.add_row("compared", str(len(report.comparable)))
+    table.add_row("baseline pass rate", f"{baseline_rate:.1%}")
+    table.add_row("candidate pass rate", f"{candidate_rate:.1%}")
+    if statistics is not None:
+        table.add_row("difference", f"{statistics.difference:+.1%}")
+        table.add_row("p-value", f"{statistics.p_value:.4f}")
+        if statistics.interval is not None:
+            low, high = statistics.interval
+            table.add_row("95% interval", f"{low:+.1%} to {high:+.1%}")
+    console.print("\n")
+    console.print(table)
+
+    if statistics is None:
+        return
+    if statistics.note:
+        console.print(f"[dim]{statistics.note}[/]")
+    elif statistics.significant:
+        console.print("[dim]McNemar's exact test: the change is unlikely to be chance.[/]")
+    else:
+        console.print(
+            "[dim]McNemar's exact test: this difference is within what chance "
+            "would produce. Not evidence of no change -- evidence of not enough "
+            "evidence.[/]"
+        )
+
+    if report.excluded:
+        console.print(
+            f"\n[yellow]{len(report.excluded)} test(s) excluded[/] and not counted "
+            "in any rate above."
+        )
 
 
 def _test_status_markup(status: ReviewStatus) -> str:

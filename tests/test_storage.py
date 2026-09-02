@@ -609,7 +609,7 @@ class TestRegressionTestStorage:
 
 class TestRunStorage:
     def _run_and_results(self) -> Any:
-        from evalsmith.runs import ErrorKind, EvaluationRun, Outcome, TestResult
+        from evalsmith.runs import CaseResult, ErrorKind, EvaluationRun, Outcome
 
         run = EvaluationRun(
             run_id="run-1",
@@ -620,14 +620,14 @@ class TestRunStorage:
             environment={"python": "3.11.16"},
         )
         results = [
-            TestResult(test_id="t1", outcome=Outcome.PASS, latency_ms=10),
-            TestResult(
+            CaseResult(test_id="t1", outcome=Outcome.PASS, latency_ms=10),
+            CaseResult(
                 test_id="t2",
                 outcome=Outcome.FAIL,
                 failed_assertions=["refunded order-A"],
                 observation='{"text": "..."}',
             ),
-            TestResult(
+            CaseResult(
                 test_id="t3",
                 outcome=Outcome.ERROR,
                 error_kind=ErrorKind.TIMEOUT,

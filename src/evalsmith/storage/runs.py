@@ -6,7 +6,18 @@ import json
 import sqlite3
 from datetime import datetime
 
-from evalsmith.runs import ErrorKind, EvaluationRun, Outcome, RunStatus, TestResult
+from evalsmith.runs import (
+    BaselinePromotion,
+    CaseResult,
+    ErrorKind,
+    EvaluationRun,
+    Outcome,
+    RunStatus,
+)
+
+
+class AmbiguousRun(Exception):
+    """A run prefix matched more than one run."""
 
 
 class RunStore:
@@ -15,7 +26,7 @@ class RunStore:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._connection = connection
 
-    def save(self, run: EvaluationRun, results: list[TestResult]) -> None:
+    def save(self, run: EvaluationRun, results: list[CaseResult]) -> None:
         """Write a run and its results together, so neither exists alone."""
         with self._connection:
             self._connection.execute(
@@ -72,6 +83,29 @@ class RunStore:
         ).fetchone()
         return _build_run(row) if row is not None else None
 
+    def resolve(self, identifier: str) -> EvaluationRun | None:
+        """Find a run by its full ID or an unambiguous prefix.
+
+        Run IDs are 32 hex characters, which nobody types. Listings show a
+        prefix, so a prefix has to be usable -- an identifier a tool prints and
+        will not accept back is a bug, not a nicety.
+        """
+        cleaned = identifier.strip()
+        if not cleaned:
+            return None
+        exact = self.get(cleaned)
+        if exact is not None:
+            return exact
+
+        rows = self._connection.execute(
+            "SELECT * FROM evaluation_runs WHERE run_id LIKE ? || '%' ORDER BY run_id",
+            (cleaned,),
+        ).fetchall()
+        if len(rows) > 1:
+            matches = ", ".join(row["run_id"][:12] for row in rows)
+            raise AmbiguousRun(f"{cleaned!r} matches several runs: {matches}.")
+        return _build_run(rows[0]) if rows else None
+
     def latest(self, target_id: str) -> EvaluationRun | None:
         row = self._connection.execute(
             """
@@ -90,12 +124,46 @@ class RunStore:
             )
         ]
 
-    def results(self, run_id: str) -> list[TestResult]:
+    def results(self, run_id: str) -> list[CaseResult]:
         return [
             _build_result(row)
             for row in self._connection.execute(
                 "SELECT * FROM test_results WHERE run_id = ? ORDER BY test_id",
                 (run_id,),
+            )
+        ]
+
+    def promote(self, promotion: BaselinePromotion) -> None:
+        """Record that a run is now the baseline. Never inferred, always decided."""
+        with self._connection:
+            self._connection.execute(
+                """
+                INSERT INTO baseline_promotions (
+                    promotion_id, run_id, target_id, promoted_at, reviewer, reason
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    promotion.promotion_id,
+                    promotion.run_id,
+                    promotion.target_id,
+                    promotion.promoted_at.isoformat(),
+                    promotion.reviewer,
+                    promotion.reason,
+                ),
+            )
+
+    def current_baseline(self) -> BaselinePromotion | None:
+        row = self._connection.execute(
+            "SELECT * FROM baseline_promotions ORDER BY promoted_at DESC LIMIT 1"
+        ).fetchone()
+        return _build_promotion(row) if row is not None else None
+
+    def promotions(self, *, limit: int = 20) -> list[BaselinePromotion]:
+        return [
+            _build_promotion(row)
+            for row in self._connection.execute(
+                "SELECT * FROM baseline_promotions ORDER BY promoted_at DESC LIMIT ?",
+                (limit,),
             )
         ]
 
@@ -105,6 +173,17 @@ class RunStore:
             (run_id,),
         ).fetchall()
         return {Outcome(row["outcome"]): int(row["n"]) for row in rows}
+
+
+def _build_promotion(row: sqlite3.Row) -> BaselinePromotion:
+    return BaselinePromotion(
+        promotion_id=row["promotion_id"],
+        run_id=row["run_id"],
+        target_id=row["target_id"],
+        reviewer=row["reviewer"],
+        reason=row["reason"],
+        promoted_at=datetime.fromisoformat(row["promoted_at"]),
+    )
 
 
 def _build_run(row: sqlite3.Row) -> EvaluationRun:
@@ -122,8 +201,8 @@ def _build_run(row: sqlite3.Row) -> EvaluationRun:
     )
 
 
-def _build_result(row: sqlite3.Row) -> TestResult:
-    return TestResult(
+def _build_result(row: sqlite3.Row) -> CaseResult:
+    return CaseResult(
         test_id=row["test_id"],
         outcome=Outcome(row["outcome"]),
         error_kind=ErrorKind(row["error_kind"]) if row["error_kind"] else None,

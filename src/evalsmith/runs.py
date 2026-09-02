@@ -34,7 +34,7 @@ class RunStatus(StrEnum):
 
 
 @dataclass
-class TestResult:
+class CaseResult:
     test_id: str
     outcome: Outcome
     error_kind: ErrorKind | None = None
@@ -64,6 +64,18 @@ class EvaluationRun:
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     finished_at: datetime | None = None
     output_dir: str | None = None
+
+
+@dataclass
+class BaselinePromotion:
+    """A recorded decision that one run is now the reference point."""
+
+    promotion_id: str
+    run_id: str
+    target_id: str
+    reviewer: str
+    reason: str | None = None
+    promoted_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 def suite_hash(test_ids: list[str]) -> str:

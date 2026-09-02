@@ -59,8 +59,8 @@ module = ["anthropic.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# scikit-learn ships no type information.
-module = ["sklearn.*"]
+# scikit-learn and scipy ship no type information.
+module = ["sklearn.*", "scipy.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

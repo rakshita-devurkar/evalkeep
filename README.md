@@ -17,7 +17,8 @@ Evalsmith does not execute your agent. It generates tests, delegates execution t
 
 ## Status
 
-Version 0.1 is under construction. Working today:
+Version 0.1 is feature-complete: the whole pipeline runs, from a raw trace file
+to a statistically-honest regression report.
 
 | Command | Status |
 | --- | --- |
@@ -36,24 +37,32 @@ Version 0.1 is under construction. Working today:
 | `evalsmith targets add` / `list` / `show` / `remove` | ✅ |
 | `evalsmith export` | ✅ |
 | `evalsmith run --target ...` | ✅ |
-| `evalsmith compare` | planned |
+| `evalsmith compare` | ✅ |
+| `evalsmith runs list` / `show` | ✅ |
+| `evalsmith baseline promote` / `show` | ✅ |
 | `evalsmith dataset build` / `list` / `show` | ✅ |
 | `evalsmith review` | ✅ |
 | `evalsmith dataset approve` / `reject` / `edit` | ✅ |
 | `evalsmith targets add` / `list` / `show` / `remove` | ✅ |
 | `evalsmith export` | ✅ |
 | `evalsmith run --target ...` | ✅ |
-| `evalsmith compare` | planned |
+| `evalsmith compare` | ✅ |
+| `evalsmith runs list` / `show` | ✅ |
+| `evalsmith baseline promote` / `show` | ✅ |
 | `evalsmith review` | ✅ |
 | `evalsmith dataset approve` / `reject` / `edit` | ✅ |
 | `evalsmith targets add` / `list` / `show` / `remove` | ✅ |
 | `evalsmith export` | ✅ |
 | `evalsmith run --target ...` | ✅ |
-| `evalsmith compare` | planned |
+| `evalsmith compare` | ✅ |
+| `evalsmith runs list` / `show` | ✅ |
+| `evalsmith baseline promote` / `show` | ✅ |
 | `evalsmith targets add` / `list` / `show` / `remove` | ✅ |
 | `evalsmith export` | ✅ |
 | `evalsmith run --target ...` | ✅ |
-| `evalsmith compare` | planned |
+| `evalsmith compare` | ✅ |
+| `evalsmith runs list` / `show` | ✅ |
+| `evalsmith baseline promote` / `show` | ✅ |
 | `evalsmith run` / `compare` | planned |
 
 ## Quick start
@@ -140,6 +149,13 @@ uv run evalsmith targets add baseline  --type python --path agents/baseline.py  
 uv run evalsmith targets add candidate --type python --path agents/candidate.py --function call_api
 uv run evalsmith run --target baseline
 uv run evalsmith run --target candidate
+```
+
+Then find out whether the change helped:
+
+```bash
+uv run evalsmith compare
+uv run evalsmith baseline promote <run-id> --reason "shipped"
 ```
 
 ## Trace format
@@ -657,6 +673,69 @@ The generated JavaScript assertions are themselves tested by executing them in
 Node — reading them is not enough. The bug those tests exist for was an operator
 precedence mistake (`(a||b).some(...)` written without the outer parentheses)
 that made **every tool assertion silently pass**.
+
+## Comparison
+
+`evalsmith compare` aligns two runs by stable test ID and classifies every pair
+— the guide's truth table, with its two error rows made explicit:
+
+| Baseline | Candidate | Classification |
+| --- | --- | --- |
+| pass | pass | unchanged pass |
+| fail | pass | **fixed** |
+| pass | fail | **regression** |
+| fail | fail | unchanged failure |
+| error | *any* | not comparable — excluded |
+| *any* | error | not comparable — excluded |
+
+### Three rules about not overclaiming
+
+**A test that errored is not a data point.** An error says the harness or the
+target broke, not that the agent got the answer wrong. Errored pairs are
+excluded from every count and reported separately. Comparing a run of timeouts
+against a passing run prints *"No comparable tests. Nothing can be concluded"* —
+not a spurious +100% improvement. Letting an outage read as a regression is the
+single most damaging mistake this tool could make.
+
+**Two runs are only comparable if they answered the same questions.** Every run
+records a hash of the test IDs it covered; comparing across different suites is
+refused unless you pass `--allow-suite-drift` to compare only the shared tests.
+
+**A confidence interval is only reported when it means something.** Significance
+uses **McNemar's exact test** — exact rather than the chi-square approximation,
+because these suites are small and that is exactly where the approximation
+fails. Only discordant pairs carry information: adding a hundred tests both runs
+passed changes the headline rate but not the p-value.
+
+The example makes the point better than any argument:
+
+```
+baseline pass rate      0.0%
+candidate pass rate   100.0%
+difference           +100.0%
+p-value               0.2500
+Only 3 test(s) changed outcome; that is too few for a trustworthy interval, so none is given.
+```
+
+A 0% → 100% improvement, and it is still **not statistically significant**. Three
+tests cannot distinguish a real fix from a coin landing the same way three times.
+An interval appears once at least 10 tests have changed outcome.
+
+### The baseline moves only when you say so
+
+`compare` uses whichever run was explicitly promoted, falling back to the newest
+run for the `baseline` target only if nothing has ever been promoted.
+
+```bash
+evalsmith baseline promote <run-id> --reviewer alex --reason "shipped"
+```
+
+Promotions are an append-only record of who decided and when — which run was the
+reference point, and why, is exactly the history a regression argument later
+depends on. A run with any errored test **cannot** be promoted: a reference
+point that only half ran is not a reference point.
+
+For CI, `compare --fail-on-regression` exits non-zero when any test regressed.
 
 ## Storage
 

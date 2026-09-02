@@ -32,7 +32,7 @@ from evalsmith.errors import CommandError
 from evalsmith.exporters.promptfoo import build_config
 from evalsmith.redaction import RedactionSummary, Redactor
 from evalsmith.regression import RegressionTest
-from evalsmith.runs import ErrorKind, EvaluationRun, Outcome, RunStatus, TestResult, suite_hash
+from evalsmith.runs import CaseResult, ErrorKind, EvaluationRun, Outcome, RunStatus, suite_hash
 from evalsmith.targets import Target, referenced_environment
 
 CONFIG_FILENAME = "promptfooconfig.yaml"
@@ -49,7 +49,7 @@ _TIMEOUT_MARKERS = ("timeout", "timed out", "etimedout", "esockettimedout")
 @dataclass
 class RunOutcome:
     run: EvaluationRun
-    results: list[TestResult] = field(default_factory=list)
+    results: list[CaseResult] = field(default_factory=list)
     #: Anything the runner said that a person should see.
     messages: list[str] = field(default_factory=list)
 
@@ -163,7 +163,7 @@ def execute(
     return RunOutcome(run=run, results=results, messages=messages)
 
 
-def import_results(path: Path, *, redactor: Redactor | None = None) -> list[TestResult]:
+def import_results(path: Path, *, redactor: Redactor | None = None) -> list[CaseResult]:
     """Read a Promptfoo results file into per-test outcomes."""
     redactor = redactor or Redactor()
     try:
@@ -175,7 +175,7 @@ def import_results(path: Path, *, redactor: Redactor | None = None) -> list[Test
     return [_result(record, redactor) for record in records if _test_id(record)]
 
 
-def _result(record: dict[str, Any], redactor: Redactor) -> TestResult:
+def _result(record: dict[str, Any], redactor: Redactor) -> CaseResult:
     test_id = _test_id(record)
     failure_reason = record.get("failureReason") or 0
     error = record.get("error") or None
@@ -198,7 +198,7 @@ def _result(record: dict[str, Any], redactor: Redactor) -> TestResult:
         error_kind = ErrorKind.EXECUTION_ERROR
 
     summary = RedactionSummary()
-    return TestResult(
+    return CaseResult(
         test_id=test_id,
         outcome=outcome,
         error_kind=error_kind,
