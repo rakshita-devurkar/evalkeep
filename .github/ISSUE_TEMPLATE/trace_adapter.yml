@@ -1,0 +1,37 @@
+name: Trace adapter
+description: Support for a trace format Evalkeep cannot read yet
+labels: ["adapter"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Adapters convert a provider's format into Evalkeep's normalized trace.
+        The contract is small on purpose — see `src/evalkeep/adapters/base.py`.
+  - type: input
+    id: source
+    attributes:
+      label: Where the traces come from
+      placeholder: Langfuse, Opik, OpenTelemetry, a home-grown logger...
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: A sample record, redacted
+      description: One record is enough. Replace anything real with placeholders.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: mapping
+    attributes:
+      label: How it maps to the normalized trace
+      description: >
+        Where do the input, output, tool calls and the failure signal live in
+        this format? See the trace format section of docs/pipeline.md.
+  - type: checkboxes
+    id: volume
+    attributes:
+      label: Scale
+      options:
+        - label: I have more than 10,000 traces in this format

@@ -112,6 +112,8 @@ letting you claim it.
 
 - **[How it works](docs/pipeline.md)** — the design decisions behind each stage
 - **[Privacy and security](docs/security.md)** — redaction, secrets, execution safety
+- **[Contributing](CONTRIBUTING.md)** — setup, conventions, and what is most wanted
+- **[Changelog](CHANGELOG.md)** — including what 0.x compatibility does and does not promise
 
 ## Exit codes
 

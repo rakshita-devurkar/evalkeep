@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest something Evalkeep should do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Evalkeep deliberately does **not** try to be a general eval framework, an
+        observability platform, a model gateway, a prompt manager, or a hosted
+        dashboard. Its scope is deciding what belongs in a regression suite and
+        making that decision trustworthy. Requests outside that will probably be
+        declined, however good they are.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that Evalkeep makes hard or impossible?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like it to do
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: Including "nothing, I gave up" — that is useful signal.

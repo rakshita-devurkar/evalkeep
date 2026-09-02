@@ -1,0 +1,34 @@
+name: Exporter
+description: Support for a test runner Evalkeep cannot export to yet
+labels: ["exporter"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Evalkeep does not execute agents; it hands a suite to a runner. Adding a
+        runner means translating expectations into that runner's assertions.
+  - type: input
+    id: runner
+    attributes:
+      label: The runner
+      placeholder: Braintrust, DeepEval, a home-grown harness...
+    validations:
+      required: true
+  - type: textarea
+    id: expectations
+    attributes:
+      label: How it expresses assertions
+      description: >
+        Evalkeep's expectation types are output_contains / output_not_contains /
+        output_matches, tool_called / tool_not_called, tool_argument_equals /
+        tool_argument_not_equals, max_tool_calls, and human_rubric. Which of
+        these can this runner express, and how?
+    validations:
+      required: true
+  - type: textarea
+    id: results
+    attributes:
+      label: What its results look like
+      description: >
+        Especially — does it distinguish an assertion failure from a provider
+        error? Evalkeep needs that distinction and will not guess it.

@@ -1,0 +1,46 @@
+name: Bug report
+description: Something behaves differently from what the docs say
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not paste real production traces. Evalkeep redacts on ingest,
+        but an issue is public and nothing has redacted it yet.
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      description: The exact command you ran.
+      placeholder: evalkeep compare --baseline abc123 --candidate def456
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened
+      description: Include the output. Redact anything from your own traces.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Smallest input that reproduces it
+      description: >
+        A synthetic trace is ideal. `examples/refund-agent/traces.jsonl` is a
+        good starting shape to modify.
+      render: json
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`evalkeep --version`, plus the commit if you are on main."
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Python and OS
+      placeholder: "3.11.16, macOS 15.4"
+    validations:
+      required: true
