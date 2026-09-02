@@ -605,3 +605,104 @@ class TestRegressionTestStorage:
         store.tests.save(test)
         store.tests.delete(test.test_id)
         assert store.tests.get(test.test_id) is None
+
+
+class TestRunStorage:
+    def _run_and_results(self) -> Any:
+        from evalsmith.runs import ErrorKind, EvaluationRun, Outcome, TestResult
+
+        run = EvaluationRun(
+            run_id="run-1",
+            target_id="baseline",
+            suite_hash="sha256:abc",
+            tests=3,
+            runner="promptfoo:3",
+            environment={"python": "3.11.16"},
+        )
+        results = [
+            TestResult(test_id="t1", outcome=Outcome.PASS, latency_ms=10),
+            TestResult(
+                test_id="t2",
+                outcome=Outcome.FAIL,
+                failed_assertions=["refunded order-A"],
+                observation='{"text": "..."}',
+            ),
+            TestResult(
+                test_id="t3",
+                outcome=Outcome.ERROR,
+                error_kind=ErrorKind.TIMEOUT,
+                error="timed out",
+            ),
+        ]
+        return run, results
+
+    def test_migration_seven_creates_the_run_tables(self, tmp_path: Path) -> None:
+        connection = sqlite3.connect(tmp_path / "db.sqlite")
+        apply_migrations(connection)
+        names = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        assert {"evaluation_runs", "test_results"} <= names
+
+    def test_a_run_round_trips_with_its_results(self, store: TraceStore) -> None:
+        from evalsmith.runs import ErrorKind, Outcome
+
+        run, results = self._run_and_results()
+        store.runs.save(run, results)
+
+        loaded = store.runs.get("run-1")
+        assert loaded is not None
+        assert loaded.suite_hash == "sha256:abc"
+        assert loaded.runner == "promptfoo:3"
+        assert loaded.environment == {"python": "3.11.16"}
+
+        stored = store.runs.results("run-1")
+        assert [r.outcome for r in stored] == [Outcome.PASS, Outcome.FAIL, Outcome.ERROR]
+        assert stored[1].failed_assertions == ["refunded order-A"]
+        assert stored[2].error_kind is ErrorKind.TIMEOUT
+
+    def test_counts_separate_errors_from_failures(self, store: TraceStore) -> None:
+        from evalsmith.runs import Outcome
+
+        run, results = self._run_and_results()
+        store.runs.save(run, results)
+        assert store.runs.counts("run-1") == {
+            Outcome.PASS: 1,
+            Outcome.FAIL: 1,
+            Outcome.ERROR: 1,
+        }
+
+    def test_saving_twice_replaces_the_results(self, store: TraceStore) -> None:
+        run, results = self._run_and_results()
+        store.runs.save(run, results)
+        store.runs.save(run, results[:1])
+        assert len(store.runs.results("run-1")) == 1
+
+    def test_the_latest_run_for_a_target(self, store: TraceStore) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        run, results = self._run_and_results()
+        store.runs.save(run, results)
+        later = self._run_and_results()[0]
+        later.run_id = "run-2"
+        later.started_at = datetime.now(UTC) + timedelta(seconds=5)
+        store.runs.save(later, [])
+        latest = store.runs.latest("baseline")
+        assert latest is not None and latest.run_id == "run-2"
+
+    def test_results_die_with_their_run(self, store: TraceStore) -> None:
+        run, results = self._run_and_results()
+        store.runs.save(run, results)
+        store._connection.execute("DELETE FROM evaluation_runs WHERE run_id = ?", ("run-1",))
+        store._connection.commit()
+        assert store.runs.results("run-1") == []
+
+    def test_listing_recent_runs(self, store: TraceStore) -> None:
+        run, results = self._run_and_results()
+        store.runs.save(run, results)
+        assert [r.run_id for r in store.runs.recent()] == ["run-1"]
+
+    def test_an_unknown_run_reads_as_none(self, store: TraceStore) -> None:
+        assert store.runs.get("nope") is None
+        assert store.runs.latest("nope") is None

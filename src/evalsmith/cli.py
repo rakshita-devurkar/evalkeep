@@ -52,15 +52,21 @@ from evalsmith.commands.review_cmd import (
     reject_test,
     review_item,
 )
+from evalsmith.commands.run_cmd import ExportResult, export_suite, run_suite
+from evalsmith.commands.target_cmd import add_target, list_targets, remove_target, show_target
 from evalsmith.commands.trace_cmd import list_traces, show_trace
 from evalsmith.detection import DetectionReport
 from evalsmith.discovery import DiscoveryReport
 from evalsmith.errors import CommandError, EvalsmithError, ExitCode
+from evalsmith.exporters import parse_format
 from evalsmith.failures import FailureStatus
 from evalsmith.ingest import DEFAULT_SAMPLE_LIMIT, IngestMode, IngestReport
 from evalsmith.regression import RegressionTest, ReviewStatus
 from evalsmith.review import ReviewDecision, ReviewOutcome
+from evalsmith.runner import RunOutcome
+from evalsmith.runs import Outcome
 from evalsmith.storage import StoredTrace
+from evalsmith.targets import TargetKind
 
 T = TypeVar("T")
 
@@ -84,6 +90,10 @@ dataset_app = typer.Typer(
     name="dataset", help="Generate and inspect regression tests.", no_args_is_help=True
 )
 app.add_typer(dataset_app)
+targets_app = typer.Typer(
+    name="targets", help="Configure the agents under test.", no_args_is_help=True
+)
+app.add_typer(targets_app)
 
 console = Console()
 err_console = Console(stderr=True)
@@ -1032,6 +1042,205 @@ def _read_document(path: Path) -> str:
         return path.expanduser().read_text(encoding="utf-8")
     except OSError as exc:
         raise CommandError(f"Could not read {path}: {exc}") from exc
+
+
+@targets_app.command("add")
+def targets_add(
+    target_id: str = typer.Argument(..., metavar="NAME", help="baseline, candidate, ..."),
+    kind: TargetKind = typer.Option(..., "--type", help="How the agent is reached."),
+    project: Path = PROJECT_OPTION,
+    description: str | None = typer.Option(None, "--description"),
+    url: str | None = typer.Option(None, "--url", help="http: the endpoint."),
+    method: str = typer.Option("POST", "--method", help="http: the HTTP method."),
+    header: list[str] = typer.Option(
+        [], "--header", metavar="NAME=VALUE", help="http: repeatable. Use ${ENV} for secrets."
+    ),
+    body: str | None = typer.Option(
+        None, "--body", help="http: request body as JSON. Use {{input}} for the test input."
+    ),
+    path: str | None = typer.Option(None, "--path", help="python/javascript: the script."),
+    function: str | None = typer.Option(None, "--function", help="python: the entry point."),
+    provider: str | None = typer.Option(None, "--provider", help="model: the provider id."),
+    output_path: str | None = typer.Option(
+        None, "--output-path", help="http: where the answer is, e.g. json.reply."
+    ),
+    tool_calls_path: str | None = typer.Option(
+        None, "--tool-calls-path", help="http: where the tool calls are."
+    ),
+    replace: bool = typer.Option(False, "--replace", help="Overwrite an existing target."),
+) -> None:
+    """Record how to reach an agent. Secrets must be ${ENV_VAR} references."""
+    target = _run(
+        lambda: add_target(
+            target_id,
+            kind,
+            project_root=project,
+            description=description,
+            url=url,
+            method=method,
+            headers=_parse_pairs(header),
+            body=_parse_json(body, "--body"),
+            path=path,
+            function=function,
+            provider=provider,
+            output_path=output_path,
+            tool_calls_path=tool_calls_path,
+            replace=replace,
+        )
+    )
+    console.print(f"[bold green]added[/] target {target.target_id} ({target.kind.value})")
+
+
+@targets_app.command("list")
+def targets_list(project: Path = PROJECT_OPTION) -> None:
+    """List configured targets."""
+    targets = _run(lambda: list_targets(project_root=project))
+    if not targets:
+        console.print("[dim]No targets. Add one with 'evalsmith targets add'.[/]")
+        return
+    table = Table(box=None, pad_edge=False)
+    table.add_column("target", style="cyan")
+    table.add_column("type")
+    table.add_column("where", overflow="fold")
+    table.add_column("description", style="dim")
+    for target in targets:
+        table.add_row(
+            target.target_id,
+            target.kind.value,
+            target.url or target.path or target.provider or "",
+            target.description or "",
+        )
+    console.print(table)
+
+
+@targets_app.command("show")
+def targets_show(
+    target_id: str = typer.Argument(..., metavar="NAME"),
+    project: Path = PROJECT_OPTION,
+) -> None:
+    """Inspect a target and the environment it needs."""
+    target, environment = _run(lambda: show_target(target_id, project_root=project))
+    console.print_json(target.model_dump_json(exclude_none=True))
+    if environment:
+        console.print("\n[bold]environment[/]")
+        for name, present in sorted(environment.items()):
+            mark = "[green]set[/]" if present else "[red]missing[/]"
+            console.print(f"  {name} {mark}")
+
+
+@targets_app.command("remove")
+def targets_remove(
+    target_id: str = typer.Argument(..., metavar="NAME"),
+    project: Path = PROJECT_OPTION,
+) -> None:
+    """Forget a target."""
+    _run(lambda: remove_target(target_id, project_root=project))
+    console.print(f"[bold yellow]removed[/] target {target_id}")
+
+
+@app.command()
+def export(
+    project: Path = PROJECT_OPTION,
+    export_format: str = typer.Option("promptfoo", "--format", "-f", help="promptfoo or jsonl."),
+    target: str | None = typer.Option(None, "--target", help="Which target to export for."),
+    out: Path | None = typer.Option(None, "--out", help="Directory to write into."),
+) -> None:
+    """Create runner-compatible files from the approved suite."""
+    result = _run(
+        lambda: export_suite(
+            project_root=project,
+            export_format=parse_format(export_format),
+            target_id=target,
+            out=out,
+        )
+    )
+    _render_export(result)
+
+
+@app.command()
+def run(
+    project: Path = PROJECT_OPTION,
+    target: str = typer.Option(..., "--target", help="Which target to run against."),
+    limit: int | None = typer.Option(None, "--limit", min=1, help="Run at most N tests."),
+) -> None:
+    """Delegate execution of the approved suite to Promptfoo."""
+    outcome = _run(lambda: run_suite(project_root=project, target_id=target, limit=limit))
+    _render_run(outcome)
+    raise typer.Exit(ExitCode.OK)
+
+
+def _parse_pairs(pairs: list[str]) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    for pair in pairs:
+        name, separator, value = pair.partition("=")
+        if not separator:
+            raise CommandError(f"Expected NAME=VALUE, got {pair!r}.")
+        parsed[name.strip()] = value.strip()
+    return parsed
+
+
+def _parse_json(raw: str | None, option: str) -> dict[str, object] | None:
+    if raw is None:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise CommandError(f"{option} must be valid JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise CommandError(f"{option} must be a JSON object.")
+    return parsed
+
+
+def _render_export(result: ExportResult) -> None:
+    summary = Table(box=None, pad_edge=False, show_header=False)
+    summary.add_column(style="bold")
+    summary.add_column()
+    summary.add_row("format", result.format.value)
+    if result.target_id:
+        summary.add_row("target", result.target_id)
+    summary.add_row("tests", str(result.tests))
+    summary.add_row("written", str(result.path))
+    console.print(summary)
+    console.print("\n[dim]Approved tests only.[/]")
+
+
+def _render_run(outcome: RunOutcome) -> None:
+    counts = outcome.counts
+    passed = counts.get(Outcome.PASS, 0)
+    failed = counts.get(Outcome.FAIL, 0)
+    errored = counts.get(Outcome.ERROR, 0)
+
+    summary = Table(box=None, pad_edge=False, show_header=False)
+    summary.add_column(style="bold")
+    summary.add_column(justify="right")
+    summary.add_row("run", outcome.run.run_id)
+    summary.add_row("target", outcome.run.target_id)
+    summary.add_row("runner", outcome.run.runner or "unknown")
+    summary.add_row("tests", str(outcome.run.tests))
+    summary.add_row("passed", f"[green]{passed}[/]")
+    summary.add_row("failed", f"[red]{failed}[/]" if failed else "0")
+    summary.add_row("errors", f"[yellow]{errored}[/]" if errored else "0")
+    console.print(summary)
+
+    for result in outcome.results:
+        if result.outcome is Outcome.ERROR:
+            console.print(
+                f"[yellow]error[/] {result.test_id} "
+                f"[dim]({result.error_kind.value if result.error_kind else 'unknown'})[/]"
+            )
+        elif result.outcome is Outcome.FAIL:
+            reason = result.failed_assertions[0] if result.failed_assertions else ""
+            console.print(f"[red]fail[/] {result.test_id} [dim]{reason.splitlines()[0:1]}[/]")
+
+    for message in outcome.messages:
+        err_console.print(f"[dim]{message}[/]")
+
+    if errored:
+        console.print(
+            "\n[dim]Errors are reported separately: a test that never ran is not "
+            "a test that failed.[/]"
+        )
+    console.print(f"\n[dim]Results stored under {outcome.run.output_dir}[/]")
 
 
 def _test_status_markup(status: ReviewStatus) -> str:

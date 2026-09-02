@@ -6,6 +6,7 @@ from evalsmith.storage.clusters import ClusterStore
 from evalsmith.storage.failures import FailureStore, FailureSummary
 from evalsmith.storage.migrations import LATEST_VERSION, MIGRATIONS, Migration, apply_migrations
 from evalsmith.storage.regression import RegressionStore
+from evalsmith.storage.runs import RunStore
 from evalsmith.storage.store import (
     StoredTrace,
     StoreOutcome,
@@ -22,6 +23,7 @@ __all__ = [
     "FailureSummary",
     "Migration",
     "RegressionStore",
+    "RunStore",
     "StoreOutcome",
     "StoreResult",
     "StoredTrace",

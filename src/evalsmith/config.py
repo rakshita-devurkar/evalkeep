@@ -86,6 +86,18 @@ class ClusteringConfig(BaseModel):
     threshold: float = 0.55
 
 
+class RunnerConfig(BaseModel):
+    """How to invoke the execution engine.
+
+    ``command`` is an argument list, never a string: it is passed straight to
+    the process without a shell, so nothing in a trace can be interpreted as a
+    shell metacharacter.
+    """
+
+    command: list[str] = Field(default_factory=lambda: ["npx", "--yes", "promptfoo@0.122.2"])
+    timeout_seconds: int = 900
+
+
 class ProjectConfig(BaseModel):
     """The contents of ``evalsmith.yaml``."""
 
@@ -95,6 +107,7 @@ class ProjectConfig(BaseModel):
     redaction: RedactionConfig = Field(default_factory=RedactionConfig)
     analyzer: AnalyzerConfig = Field(default_factory=AnalyzerConfig)
     clustering: ClusteringConfig = Field(default_factory=ClusteringConfig)
+    runner: RunnerConfig = Field(default_factory=RunnerConfig)
 
     def to_yaml(self) -> str:
         return yaml.safe_dump(

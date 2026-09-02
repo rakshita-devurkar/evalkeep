@@ -200,6 +200,42 @@ MIGRATIONS: tuple[Migration, ...] = (
             "ALTER TABLE regression_tests ADD COLUMN edited_by TEXT",
         ),
     ),
+    Migration(
+        version=7,
+        name="evaluation runs and results",
+        statements=(
+            """
+            CREATE TABLE evaluation_runs (
+                run_id      TEXT PRIMARY KEY,
+                target_id   TEXT NOT NULL,
+                suite_hash  TEXT NOT NULL,
+                tests       INTEGER NOT NULL,
+                status      TEXT NOT NULL,
+                runner      TEXT,
+                environment TEXT NOT NULL DEFAULT '{}',
+                started_at  TEXT NOT NULL,
+                finished_at TEXT,
+                output_dir  TEXT
+            )
+            """,
+            "CREATE INDEX evaluation_runs_target ON evaluation_runs(target_id)",
+            """
+            CREATE TABLE test_results (
+                run_id            TEXT NOT NULL
+                                  REFERENCES evaluation_runs(run_id) ON DELETE CASCADE,
+                test_id           TEXT NOT NULL,
+                outcome           TEXT NOT NULL,
+                error_kind        TEXT,
+                error             TEXT,
+                latency_ms        INTEGER,
+                observation       TEXT,
+                failed_assertions TEXT NOT NULL DEFAULT '[]',
+                PRIMARY KEY (run_id, test_id)
+            )
+            """,
+            "CREATE INDEX test_results_outcome ON test_results(outcome)",
+        ),
+    ),
 )
 
 LATEST_VERSION = max(migration.version for migration in MIGRATIONS)

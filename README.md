@@ -33,15 +33,27 @@ Version 0.1 is under construction. Working today:
 | `evalsmith dataset build` / `list` / `show` | ✅ |
 | `evalsmith review` | ✅ |
 | `evalsmith dataset approve` / `reject` / `edit` | ✅ |
-| `evalsmith export` | planned |
+| `evalsmith targets add` / `list` / `show` / `remove` | ✅ |
+| `evalsmith export` | ✅ |
+| `evalsmith run --target ...` | ✅ |
+| `evalsmith compare` | planned |
 | `evalsmith dataset build` / `list` / `show` | ✅ |
 | `evalsmith review` | ✅ |
 | `evalsmith dataset approve` / `reject` / `edit` | ✅ |
-| `evalsmith export` | planned |
+| `evalsmith targets add` / `list` / `show` / `remove` | ✅ |
+| `evalsmith export` | ✅ |
+| `evalsmith run --target ...` | ✅ |
+| `evalsmith compare` | planned |
 | `evalsmith review` | ✅ |
 | `evalsmith dataset approve` / `reject` / `edit` | ✅ |
-| `evalsmith export` | planned |
-| `evalsmith export` | planned |
+| `evalsmith targets add` / `list` / `show` / `remove` | ✅ |
+| `evalsmith export` | ✅ |
+| `evalsmith run --target ...` | ✅ |
+| `evalsmith compare` | planned |
+| `evalsmith targets add` / `list` / `show` / `remove` | ✅ |
+| `evalsmith export` | ✅ |
+| `evalsmith run --target ...` | ✅ |
+| `evalsmith compare` | planned |
 | `evalsmith run` / `compare` | planned |
 
 ## Quick start
@@ -119,6 +131,15 @@ Then review them. Nothing is exported until a person approves it:
 
 ```bash
 uv run evalsmith review
+```
+
+Then run the approved suite against your agents:
+
+```bash
+uv run evalsmith targets add baseline  --type python --path agents/baseline.py  --function call_api
+uv run evalsmith targets add candidate --type python --path agents/candidate.py --function call_api
+uv run evalsmith run --target baseline
+uv run evalsmith run --target candidate
 ```
 
 ## Trace format
@@ -550,6 +571,92 @@ clears the "needs an expectation" warning.
 
 A missing positive expectation is a warning, not a veto: a pure prohibition is
 sometimes the right test, and that call belongs to the reviewer.
+
+## Targets and execution
+
+Evalsmith does not execute agents. It hands an established runner a suite and
+reads the results back — that division is the whole point of the project, and
+`run` is a translation layer, not an eval engine.
+
+### Targets are committed, and cannot contain secrets
+
+A target says where an agent lives and how to read its answer. It lives in
+`targets.yaml`, which **is** committed — so a literal credential in one would be
+a leak. That is enforced, not requested: saving a target whose configuration
+contains something that looks like a credential is refused, and the same
+detectors that redact traces do the looking.
+
+```bash
+evalsmith targets add candidate --type http \
+  --url https://agent.example.com/chat \
+  --body '{"message": "{{input}}"}' \
+  --header 'Authorization=${AGENT_TOKEN}' \
+  --output-path json.reply --tool-calls-path json.tool_calls
+```
+
+Secrets are `${ENV_VAR}` references, resolved at run time; a run stops before it
+starts if a referenced variable is unset. Four kinds are supported — `http`,
+`python`, `javascript` and `model` (a provider called directly, for testing tool
+selection rather than a whole application) — and all four are normalized to one
+response shape:
+
+```json
+{"text": "...", "toolCalls": [{"tool": "...", "arguments": {...}}]}
+```
+
+so an expectation means the same thing wherever it runs.
+
+### Two rules the runner is built around
+
+**The runner is invoked as an argument list, never through a shell.** Test
+inputs, tool names and paths all come from recorded traces. Building a command
+string out of them would make a trace containing `; rm -rf` a
+remote-code-execution bug, so `subprocess.run` gets a list with `shell=False`.
+
+**Every literal in a generated assertion is embedded as JSON.** Expectations
+carry data from traces — order IDs, output fragments. Pasting those into a
+JavaScript expression by concatenation is an injection bug with the same shape
+as SQL injection. There is a test that puts `order-"); process.exit(1); //` into
+an expectation and checks the assertion still evaluates correctly.
+
+### A test that never ran is not a test that failed
+
+Promptfoo distinguishes an assertion failure from a provider error, and so does
+the import:
+
+| Result | Meaning |
+| --- | --- |
+| `pass` | The agent satisfied every expectation |
+| `fail` | The agent ran and got it wrong — information about the agent |
+| `error` | The agent never ran: a timeout or a crashed provider |
+
+Errors are reported separately and never counted as failures. Letting an outage
+look like a regression is exactly the wrong answer for a tool whose job is
+deciding whether a release got worse.
+
+### The example runs with no key and no network
+
+`examples/refund-agent/agents/` holds two deterministic agents: `baseline.py`
+reproduces the bug the example traces recorded (refunds the *oldest* order) and
+`candidate.py` fixes it. Against a suite of three approved tests:
+
+```
+baseline    passed 0   failed 3   errors 0
+candidate   passed 3   failed 0   errors 0
+```
+
+Both runs record the same suite hash, so they are comparable. That end-to-end
+check runs against the real Promptfoo and is opt-in, since it downloads Node
+packages:
+
+```bash
+EVALSMITH_E2E=1 uv run pytest tests/test_export_run.py::TestAgainstTheRealRunner
+```
+
+The generated JavaScript assertions are themselves tested by executing them in
+Node — reading them is not enough. The bug those tests exist for was an operator
+precedence mistake (`(a||b).some(...)` written without the outer parentheses)
+that made **every tool assertion silently pass**.
 
 ## Storage
 
