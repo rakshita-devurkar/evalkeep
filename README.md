@@ -31,10 +31,16 @@ Version 0.1 is under construction. Working today:
 | `evalsmith discover` | ✅ |
 | `evalsmith clusters list` / `show` / `rename` / `merge` / `split` / `dismiss` | ✅ |
 | `evalsmith dataset build` / `list` / `show` | ✅ |
-| `evalsmith review` | planned |
+| `evalsmith review` | ✅ |
+| `evalsmith dataset approve` / `reject` / `edit` | ✅ |
+| `evalsmith export` | planned |
 | `evalsmith dataset build` / `list` / `show` | ✅ |
-| `evalsmith review` | planned |
-| `evalsmith review` | planned |
+| `evalsmith review` | ✅ |
+| `evalsmith dataset approve` / `reject` / `edit` | ✅ |
+| `evalsmith export` | planned |
+| `evalsmith review` | ✅ |
+| `evalsmith dataset approve` / `reject` / `edit` | ✅ |
+| `evalsmith export` | planned |
 | `evalsmith export` | planned |
 | `evalsmith run` / `compare` | planned |
 
@@ -107,6 +113,12 @@ Then draft a regression test for each family's representatives:
 uv run evalsmith dataset build
 uv run evalsmith dataset list
 uv run evalsmith dataset show trace-1042
+```
+
+Then review them. Nothing is exported until a person approves it:
+
+```bash
+uv run evalsmith review
 ```
 
 ## Trace format
@@ -467,6 +479,77 @@ trace, the failure, its evidence, the cluster and the representative role it was
 selected for, the analysis and analyzer, the source trace's content hash, and
 the generator version. Re-running is a no-op; `--regenerate` rewrites drafts and
 **never** touches a reviewed test.
+
+## Review
+
+`evalsmith review` walks the pending drafts, showing all three things a decision
+needs on one screen — **the source interaction, the failure analysis, and the
+proposed test** — and asks:
+
+```
+approve / edit / reject / skip [skip]:
+```
+
+An answer it does not recognise means *skip*: a review tool must never guess a
+decision. Each choice records who decided, when, and why.
+
+Everything is also reachable one decision at a time, so a script or CI job can
+record the same decisions without a terminal — which is what keeps the guide's
+non-interactive review format possible later:
+
+```bash
+evalsmith dataset approve <id> --reviewer alex --reason "..."
+evalsmith dataset reject  <id> --reviewer alex --reason "synthetic data"
+evalsmith dataset edit    <id> --file edited.yaml
+```
+
+### Editing
+
+`edit` opens the test's input and expectations as YAML in `$EDITOR`. This is
+where the generated draft gets its missing half — completing the guide's own
+example:
+
+```yaml
+expectations:
+- type: tool_argument_equals        # added by the reviewer
+  tool: refund_order
+  path: order_id
+  value: order-C
+- type: tool_argument_not_equals    # read off the trace
+  tool: refund_order
+  path: order_id
+  value: order-A
+```
+
+Two rules the editor enforces:
+
+- **Only the input and the expectations are editable.** The test ID, provenance
+  and recorded fixtures are facts about where the test came from; letting a
+  review rewrite them would make the audit trail describe something that never
+  happened.
+- **Nothing is stored unless it is valid.** An unparseable, invalid or
+  self-contradictory edit is rejected with the reason, and the stored draft is
+  left exactly as it was. YAML is parsed with `safe_load`, so a document from an
+  editor cannot construct objects.
+
+Warnings are recomputed after an edit rather than carried forward — they
+describe current content, and a note about how a draft was generated stops being
+true the moment a person changes it. Adding the positive expectation above
+clears the "needs an expectation" warning.
+
+### What review guarantees
+
+- **A contradictory test cannot be approved.** It would fail on a correct agent
+  too, reporting a regression that is really a bug in the suite. It can still be
+  *rejected* — that is how a broken draft leaves the queue.
+- **A test with no expectations cannot be approved.** It checks nothing.
+- **Rejected tests are kept, not deleted.** A rejection is evidence about what a
+  team decided not to cover.
+- **Only approved tests are exported.** Drafts and rejections never leave the
+  database.
+
+A missing positive expectation is a warning, not a veto: a pure prohibition is
+sometimes the right test, and that call belongs to the reviewer.
 
 ## Storage
 

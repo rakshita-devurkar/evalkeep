@@ -11,6 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar
 
+import click
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -42,13 +43,23 @@ from evalsmith.commands.discover_cmd import (
 )
 from evalsmith.commands.ingest_cmd import ingest_traces
 from evalsmith.commands.init_cmd import Action, initialize_project
+from evalsmith.commands.review_cmd import (
+    ReviewItem,
+    approve_test,
+    edit_test,
+    editable_document,
+    pending_reviews,
+    reject_test,
+    review_item,
+)
 from evalsmith.commands.trace_cmd import list_traces, show_trace
 from evalsmith.detection import DetectionReport
 from evalsmith.discovery import DiscoveryReport
-from evalsmith.errors import EvalsmithError, ExitCode
+from evalsmith.errors import CommandError, EvalsmithError, ExitCode
 from evalsmith.failures import FailureStatus
 from evalsmith.ingest import DEFAULT_SAMPLE_LIMIT, IngestMode, IngestReport
 from evalsmith.regression import RegressionTest, ReviewStatus
+from evalsmith.review import ReviewDecision, ReviewOutcome
 from evalsmith.storage import StoredTrace
 
 T = TypeVar("T")
@@ -755,10 +766,10 @@ def dataset_list(
         return
 
     table = Table(box=None, pad_edge=False)
-    table.add_column("test_id", style="cyan")
+    table.add_column("test_id", style="cyan", overflow="fold")
     table.add_column("status")
     table.add_column("checks", justify="right")
-    table.add_column("type")
+    table.add_column("reviewer", style="dim")
     table.add_column("needs", style="yellow")
     for test in listing.tests:
         needs = []
@@ -770,7 +781,7 @@ def dataset_list(
             test.test_id,
             _test_status_markup(test.status),
             str(len(test.deterministic_expectations)),
-            test.provenance.failure_type or "",
+            f"{test.reviewer} (edited)" if test.edited else (test.reviewer or ""),
             ", ".join(needs),
         )
     console.print(table)
@@ -789,6 +800,238 @@ def dataset_show(
     """Inspect one regression test and its provenance."""
     test = _run(lambda: show_test(identifier, project_root=project))
     _render_test(test)
+
+
+@app.command()
+def review(
+    identifier: str | None = typer.Argument(
+        None, metavar="[ID]", help="Review one test instead of every draft."
+    ),
+    project: Path = PROJECT_OPTION,
+    limit: int | None = typer.Option(None, "--limit", min=1, help="Review at most N drafts."),
+    reviewer: str | None = typer.Option(None, "--reviewer", help="Who is reviewing."),
+) -> None:
+    """Approve, edit, reject or skip drafts."""
+    if identifier is not None:
+        items = [_run(lambda: review_item(identifier, project_root=project))]
+    else:
+        items = _run(lambda: pending_reviews(project_root=project, limit=limit))
+
+    if not items:
+        console.print("[dim]Nothing to review. Run 'evalsmith dataset build'.[/]")
+        return
+
+    who = reviewer or _default_reviewer()
+    outcome = ReviewOutcome(remaining=len(items))
+    for position, item in enumerate(items, start=1):
+        console.rule(f"[bold]{position} of {len(items)}[/]  {item.test.test_id}")
+        if not _review_one(item, project=project, reviewer=who, outcome=outcome):
+            break
+        outcome.remaining -= 1
+
+    _render_review_outcome(outcome)
+
+
+def _review_one(item: ReviewItem, *, project: Path, reviewer: str, outcome: ReviewOutcome) -> bool:
+    """Show one draft and act on the decision. Returns False to stop the session."""
+    current = item
+    while True:
+        _render_review_item(current)
+        decision = _ask_decision()
+
+        match decision:
+            case ReviewDecision.APPROVE:
+                try:
+                    approve_test(
+                        current.test.test_id,
+                        project_root=project,
+                        reviewer=reviewer,
+                        reason=_ask_reason("Why approve? (optional)"),
+                    )
+                except EvalsmithError as exc:
+                    err_console.print(f"[bold red]error:[/] {exc.message}")
+                    continue
+                outcome.reviewed += 1
+                outcome.approved += 1
+                if current.test.edited:
+                    outcome.edited += 1
+                console.print("[bold green]approved[/]")
+                return True
+
+            case ReviewDecision.REJECT:
+                reject_test(
+                    current.test.test_id,
+                    project_root=project,
+                    reviewer=reviewer,
+                    reason=_ask_reason("Why reject?"),
+                )
+                outcome.reviewed += 1
+                outcome.rejected += 1
+                console.print("[bold yellow]rejected[/] [dim](kept for audit)[/]")
+                return True
+
+            case ReviewDecision.EDIT:
+                if not _edit_in_place(current.test.test_id, project=project, reviewer=reviewer):
+                    continue
+                current = review_item(current.test.test_id, project_root=project)
+                continue
+
+            case _:
+                outcome.skipped += 1
+                console.print("[dim]skipped[/]")
+                return True
+
+
+def _edit_in_place(test_id: str, *, project: Path, reviewer: str) -> bool:
+    """Open the document in $EDITOR and store it if it is valid."""
+    document = editable_document(test_id, project_root=project)
+    try:
+        edited = click.edit(document, extension=".yaml")
+    except Exception as exc:  # no editor configured, or it failed to launch
+        err_console.print(f"[bold red]error:[/] could not open an editor: {exc}")
+        err_console.print("[dim]hint:[/] set $EDITOR, or use 'evalsmith dataset edit'.")
+        return False
+
+    if edited is None or edited.strip() == document.strip():
+        console.print("[dim]no changes[/]")
+        return False
+
+    try:
+        edit_test(test_id, edited, project_root=project, editor=reviewer)
+    except EvalsmithError as exc:
+        err_console.print(f"[bold red]error:[/] {exc.message}")
+        if exc.hint:
+            err_console.print(f"[dim]hint:[/] {exc.hint}")
+        return False
+
+    console.print("[bold green]edited[/]")
+    return True
+
+
+def _ask_decision() -> ReviewDecision:
+    answer = typer.prompt("approve / edit / reject / skip", default="skip", show_default=True)
+    letter = answer.strip().lower()[:1]
+    return {
+        "a": ReviewDecision.APPROVE,
+        "e": ReviewDecision.EDIT,
+        "r": ReviewDecision.REJECT,
+    }.get(letter, ReviewDecision.SKIP)
+
+
+def _ask_reason(prompt: str) -> str | None:
+    answer = typer.prompt(prompt, default="", show_default=False)
+    return answer.strip() or None
+
+
+def _default_reviewer() -> str:
+    from evalsmith.commands.detect_cmd import default_reviewer
+
+    return default_reviewer()
+
+
+def _render_review_item(item: ReviewItem) -> None:
+    """Guide 8H: the source interaction, the analysis, then the proposed test."""
+    console.print("\n[bold]the interaction[/]")
+    _render_trace(item.trace)
+
+    if item.analysis is not None:
+        analysis = item.analysis
+        console.print(
+            f"\n[bold]analysis[/] {analysis.failure_type.value} / "
+            f"{analysis.component.value} / {_severity_markup(analysis.severity.value)}"
+        )
+        console.print(analysis.summary)
+        console.print(f"[dim]by {analysis.analyzer}[/]")
+
+    console.print("\n[bold]evidence[/]")
+    for signal in item.failure.signals:
+        console.print(f"  [dim]({signal.kind.value})[/] {signal.summary}")
+
+    console.print("\n[bold]proposed test[/]")
+    _render_test(item.test)
+
+
+def _render_review_outcome(outcome: ReviewOutcome) -> None:
+    console.rule()
+    summary = Table(box=None, pad_edge=False, show_header=False)
+    summary.add_column(style="bold")
+    summary.add_column(justify="right")
+    summary.add_row("approved", f"[green]{outcome.approved}[/]")
+    if outcome.edited:
+        summary.add_row("of those, edited", str(outcome.edited))
+    summary.add_row("rejected", str(outcome.rejected))
+    summary.add_row("skipped", str(outcome.skipped))
+    if outcome.remaining:
+        summary.add_row("left to review", str(outcome.remaining))
+    console.print(summary)
+    console.print("\n[dim]Only approved tests are exported.[/]")
+
+
+@dataset_app.command("approve")
+def dataset_approve(
+    identifier: str = typer.Argument(..., metavar="ID", help="Test, failure or trace ID."),
+    project: Path = PROJECT_OPTION,
+    reviewer: str | None = typer.Option(None, "--reviewer", help="Who is deciding."),
+    reason: str | None = typer.Option(None, "--reason", help="Why."),
+) -> None:
+    """Approve a test without the interactive loop."""
+    test = _run(
+        lambda: approve_test(identifier, project_root=project, reviewer=reviewer, reason=reason)
+    )
+    console.print(f"[bold green]approved[/] {test.test_id} by {test.reviewer}")
+
+
+@dataset_app.command("reject")
+def dataset_reject(
+    identifier: str = typer.Argument(..., metavar="ID", help="Test, failure or trace ID."),
+    project: Path = PROJECT_OPTION,
+    reviewer: str | None = typer.Option(None, "--reviewer", help="Who is deciding."),
+    reason: str | None = typer.Option(None, "--reason", help="Why."),
+) -> None:
+    """Reject a test. The record is kept for audit."""
+    test = _run(
+        lambda: reject_test(identifier, project_root=project, reviewer=reviewer, reason=reason)
+    )
+    console.print(f"[bold yellow]rejected[/] {test.test_id} by {test.reviewer}")
+
+
+@dataset_app.command("edit")
+def dataset_edit(
+    identifier: str = typer.Argument(..., metavar="ID", help="Test, failure or trace ID."),
+    project: Path = PROJECT_OPTION,
+    from_file: Path | None = typer.Option(
+        None, "--file", help="Read the edited document from a file instead of $EDITOR."
+    ),
+    show: bool = typer.Option(False, "--show", help="Print the editable document and exit."),
+    reviewer: str | None = typer.Option(None, "--reviewer", help="Who is editing."),
+) -> None:
+    """Edit a test's input and expectations."""
+    if show:
+        console.print(_run(lambda: editable_document(identifier, project_root=project)))
+        return
+
+    if from_file is not None:
+        document = _run(lambda: _read_document(from_file))
+    else:
+        original = _run(lambda: editable_document(identifier, project_root=project))
+        edited = click.edit(original, extension=".yaml")
+        if edited is None or edited.strip() == original.strip():
+            console.print("[dim]no changes[/]")
+            return
+        document = edited
+
+    test = _run(lambda: edit_test(identifier, document, project_root=project, editor=reviewer))
+    console.print(
+        f"[bold green]edited[/] {test.test_id} "
+        f"({len(test.expectations)} expectations, {len(test.warnings)} warnings)"
+    )
+
+
+def _read_document(path: Path) -> str:
+    try:
+        return path.expanduser().read_text(encoding="utf-8")
+    except OSError as exc:
+        raise CommandError(f"Could not read {path}: {exc}") from exc
 
 
 def _test_status_markup(status: ReviewStatus) -> str:
@@ -847,6 +1090,14 @@ def _render_test(test: RegressionTest) -> None:
         header.add_row("severity", _severity_markup(test.provenance.severity))
     header.add_row("analyzer", test.provenance.analyzer or "")
     header.add_row("generator", f"v{test.provenance.generator_version}")
+    if test.reviewer:
+        header.add_row("reviewer", test.reviewer)
+    if test.reviewed_at:
+        header.add_row("reviewed", test.reviewed_at.isoformat())
+    if test.review_reason:
+        header.add_row("reason", test.review_reason)
+    if test.edited:
+        header.add_row("edited by", test.edited_by or "")
     console.print(header)
 
     if test.input.text:

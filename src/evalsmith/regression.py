@@ -349,6 +349,10 @@ class RegressionTest:
     warnings: list[str] = field(default_factory=list)
     reviewer: str | None = None
     review_reason: str | None = None
+    reviewed_at: datetime | None = None
+    #: True once a person changed the generated content, not merely approved it.
+    edited: bool = False
+    edited_by: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 

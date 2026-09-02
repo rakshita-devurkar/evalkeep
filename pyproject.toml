@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 dependencies = [
+    "click>=8.5.0",
     "numpy>=2.4.6",
     "pydantic>=2.13.5",
     "pyyaml>=6.0.3",

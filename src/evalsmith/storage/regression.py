@@ -30,8 +30,8 @@ class RegressionStore:
                 INSERT INTO regression_tests (
                     test_id, failure_id, cluster_id, status, input, fixtures,
                     expectations, warnings, provenance, reviewer, review_reason,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    reviewed_at, edited, edited_by, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(test_id) DO UPDATE SET
                     cluster_id = excluded.cluster_id,
                     status = excluded.status,
@@ -42,6 +42,9 @@ class RegressionStore:
                     provenance = excluded.provenance,
                     reviewer = excluded.reviewer,
                     review_reason = excluded.review_reason,
+                    reviewed_at = excluded.reviewed_at,
+                    edited = excluded.edited,
+                    edited_by = excluded.edited_by,
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -56,6 +59,9 @@ class RegressionStore:
                     json.dumps(test.provenance.to_dict(), sort_keys=True),
                     test.reviewer,
                     test.review_reason,
+                    test.reviewed_at.isoformat() if test.reviewed_at else None,
+                    int(test.edited),
+                    test.edited_by,
                     test.created_at.isoformat(),
                     test.updated_at.isoformat(),
                 ),
@@ -122,6 +128,9 @@ def _build(row: sqlite3.Row) -> RegressionTest:
         provenance=Provenance.from_dict(json.loads(row["provenance"])),
         reviewer=row["reviewer"],
         review_reason=row["review_reason"],
+        reviewed_at=(datetime.fromisoformat(row["reviewed_at"]) if row["reviewed_at"] else None),
+        edited=bool(row["edited"]),
+        edited_by=row["edited_by"],
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),
     )

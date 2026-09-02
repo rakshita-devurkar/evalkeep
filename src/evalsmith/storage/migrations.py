@@ -191,6 +191,15 @@ MIGRATIONS: tuple[Migration, ...] = (
             "CREATE INDEX regression_tests_cluster ON regression_tests(cluster_id)",
         ),
     ),
+    Migration(
+        version=6,
+        name="review audit trail",
+        statements=(
+            "ALTER TABLE regression_tests ADD COLUMN reviewed_at TEXT",
+            "ALTER TABLE regression_tests ADD COLUMN edited INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE regression_tests ADD COLUMN edited_by TEXT",
+        ),
+    ),
 )
 
 LATEST_VERSION = max(migration.version for migration in MIGRATIONS)
