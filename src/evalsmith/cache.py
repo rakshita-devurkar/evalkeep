@@ -19,7 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-CACHE_DIRNAME = "analysis"
+ANALYSIS_DIRNAME = "analysis"
+EMBEDDING_DIRNAME = "embeddings"
 
 
 def cache_key(content_hash: str, analyzer_identity: str, prompt_version: int) -> str:
@@ -35,11 +36,13 @@ class CacheStats:
     writes: int = 0
 
 
-class AnalysisCache:
+class JsonFileCache:
     """A content-addressed JSON file cache. Corrupt entries are treated as misses."""
 
+    dirname: str = "cache"
+
     def __init__(self, root: Path, *, enabled: bool = True) -> None:
-        self.root = root / CACHE_DIRNAME
+        self.root = root / self.dirname
         self.enabled = enabled
         self.stats = CacheStats()
 
@@ -78,3 +81,42 @@ class AnalysisCache:
             # A cache is an optimisation; failing to write one is not an error.
             return
         self.stats.writes += 1
+
+
+class AnalysisCache(JsonFileCache):
+    """Cached analyzer answers, keyed by trace content, analyst and prompt version."""
+
+    dirname = ANALYSIS_DIRNAME
+
+
+class EmbeddingCache(JsonFileCache):
+    """Cached vectors, keyed by the embedded text and the embedding space.
+
+    Embedding the same failure description twice is wasted work with a local
+    provider and wasted money with a hosted one, and re-running ``discover``
+    after editing one cluster should not re-embed everything.
+    """
+
+    dirname = EMBEDDING_DIRNAME
+
+    def get_vector(self, key: str) -> list[float] | None:
+        payload = self.get(key)
+        if payload is None:
+            return None
+        vector = payload.get("vector")
+        if not isinstance(vector, list) or not all(
+            isinstance(value, int | float) for value in vector
+        ):
+            self.stats.hits -= 1
+            self.stats.misses += 1
+            return None
+        return [float(value) for value in vector]
+
+    def put_vector(self, key: str, vector: list[float]) -> None:
+        self.put(key, {"vector": vector})
+
+
+def embedding_key(text: str, embedder_identity: str) -> str:
+    """A key over the exact text embedded and the space it was embedded into."""
+    material = "\n".join([embedder_identity, text])
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()

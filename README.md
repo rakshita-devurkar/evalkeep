@@ -28,7 +28,9 @@ Version 0.1 is under construction. Working today:
 | `evalsmith detect` | ✅ |
 | `evalsmith failures list` / `show` / `confirm` / `dismiss` / `add` | ✅ |
 | `evalsmith analyze` / `failures label` | ✅ |
-| `evalsmith discover` (clustering) | planned |
+| `evalsmith discover` | ✅ |
+| `evalsmith clusters list` / `show` / `rename` / `merge` / `split` / `dismiss` | ✅ |
+| `evalsmith dataset build` | planned |
 | `evalsmith dataset build` | planned |
 | `evalsmith review` | planned |
 | `evalsmith export` | planned |
@@ -86,6 +88,15 @@ uv run evalsmith failures label trace-1042 \
 
 # With analyzer.provider set in evalsmith.yaml:
 uv run evalsmith analyze
+```
+
+Then group them into families and pick who represents each:
+
+```bash
+uv run evalsmith discover
+uv run evalsmith clusters list
+uv run evalsmith clusters show <cluster-id>
+uv run evalsmith clusters rename <cluster-id> "Refunds the wrong order"
 ```
 
 ## Trace format
@@ -279,11 +290,107 @@ it loses nothing the database does not already hold.
 Every analysis keeps the provider's raw response for audit, so a surprising
 label can be checked against what the model actually said.
 
+## Clustering and representatives
+
+`evalsmith discover` embeds each analyzed failure, groups them into families,
+and selects representatives — the point of the whole exercise, since a
+regression suite wants one good test per failure family, not forty copies of the
+same bug.
+
+### The algorithm, and why
+
+Average-linkage agglomerative clustering over **cosine distance**, cut at a
+configured threshold (default `0.55`). Chosen for three properties that matter
+more here than raw clustering quality:
+
+- **It is deterministic.** No initialisation, no restarts: the same vectors and
+  threshold always give the same grouping. A seed is recorded with every run
+  anyway, so swapping in a randomized algorithm later cannot quietly break
+  reproducibility.
+- **It does not need the cluster count up front.** Nobody knows how many failure
+  families a trace file holds.
+- **The threshold means something.** It is a cosine distance — explainable,
+  tunable, and written into every stored run alongside the embedder, dimensions,
+  linkage and seed.
+
+Average linkage rather than single linkage on purpose: single linkage chains, so
+one ambiguous failure sitting between two families would merge both.
+
+### Embeddings work offline
+
+The default embedder is `hashing` — feature hashing over unigrams and bigrams,
+L2-normalized, deterministic (BLAKE2b keyed by the seed, never Python's
+randomized `hash()`). It needs no key and no network.
+
+Be clear about what it does: it captures **lexical** overlap, not meaning.
+"refunded the wrong order" and "issued a credit for the incorrect purchase" will
+not group, where a trained embedding model would place them together. That is
+acceptable here because the embedded text is not free prose — it is a structured
+analysis whose failure type and component lead the string, written under a
+prompt that explicitly asks for wording that repeats across a family.
+
+Measured on 200 synthetic failures drawn from five known families, with three
+phrasings each: **7 clusters, every one pure** — no family was ever merged into
+another. One family split three ways because its phrasings shared few words.
+That is the error worth having: an over-split family costs an extra
+representative test, while a false merge would leave a real failure family with
+no coverage at all. `clusters merge` exists for exactly this.
+
+A hosted embedding model plugs in at `evalsmith/embeddings/__init__.py`:
+implement the four-member `EmbeddingProvider` protocol and register it. The
+cache and the stored run parameters key off the provider's `identity`, so
+vectors from two different models can never be silently mixed.
+
+### Representatives
+
+Each family gets up to three, answering three different questions:
+
+| Role | Question it answers |
+| --- | --- |
+| `central` | What does this family typically look like? |
+| `boundary` | How far does it stretch? |
+| `high_severity` | How bad does it get? |
+
+One failure can hold several roles — in a family of one it holds all three.
+
+### Editing a clustering
+
+A distance metric over short summaries will always split a family a person can
+see is one, and join two that a person can see are not. Editing is therefore a
+first-class operation:
+
+```bash
+evalsmith clusters merge <id> <id>              # these are really one family
+evalsmith clusters split <id> --failure <id>    # this one does not belong
+evalsmith clusters rename <id> "Refunds the wrong order"
+evalsmith clusters dismiss <id>                 # not worth regression coverage
+```
+
+**A cluster's identity is derived from its members**, which is what lets edits
+survive: re-running `discover` on unchanged data produces the same cluster IDs,
+so your names and dismissals stay attached to the families they were written
+for. Change the membership and the ID changes — honestly, because it is no
+longer the same group. When re-clustering *would* discard an edit it cannot
+carry over, `discover` refuses and tells you which; `--force` proceeds.
+
+### Scale
+
+Clustering builds a full pairwise distance matrix, so cost grows quadratically:
+
+| Failures | Time | Peak memory |
+| --- | --- | --- |
+| 500 | 0.08s | 5 MB |
+| 2,000 | 0.69s | 26 MB |
+| 5,000 | 4.2s | 133 MB |
+
+Comfortable to a few thousand failures; beyond ~20,000 the matrix dominates.
+HDBSCAN, on the 0.2 roadmap, is the fix.
+
 ## Storage
 
-Ingested traces and their failure records go into SQLite at
-`.evalsmith/database.db`, applied through versioned migrations recorded in a
-`schema_migrations` table. The redacted trace
+Ingested traces, their failure records and the current clustering go into
+SQLite at `.evalsmith/database.db`, applied through versioned migrations
+recorded in a `schema_migrations` table. The redacted trace
 is stored whole as JSON and is the source of truth; its events are also written
 as rows in the same transaction, as a derived index so detection can ask which
 traces called `refund_order` without deserializing everything.

@@ -120,6 +120,48 @@ MIGRATIONS: tuple[Migration, ...] = (
             "CREATE INDEX failure_analyses_severity ON failure_analyses(severity)",
         ),
     ),
+    Migration(
+        version=4,
+        name="clusters and representatives",
+        statements=(
+            # One row per `discover`, holding everything needed to reproduce
+            # the grouping it produced.
+            """
+            CREATE TABLE clustering_runs (
+                run_id     TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                embedder   TEXT NOT NULL,
+                dimensions INTEGER NOT NULL,
+                parameters TEXT NOT NULL,
+                failures   INTEGER NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE clusters (
+                cluster_id  TEXT PRIMARY KEY,
+                run_id      TEXT NOT NULL
+                            REFERENCES clustering_runs(run_id) ON DELETE CASCADE,
+                label       TEXT NOT NULL,
+                labelled_by TEXT,
+                dismissed   INTEGER NOT NULL DEFAULT 0,
+                created_at  TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX clusters_run ON clusters(run_id)",
+            """
+            CREATE TABLE cluster_members (
+                cluster_id TEXT NOT NULL
+                           REFERENCES clusters(cluster_id) ON DELETE CASCADE,
+                failure_id TEXT NOT NULL
+                           REFERENCES failures(failure_id) ON DELETE CASCADE,
+                distance   REAL NOT NULL,
+                roles      TEXT NOT NULL DEFAULT '[]',
+                PRIMARY KEY (cluster_id, failure_id)
+            )
+            """,
+            "CREATE INDEX cluster_members_failure ON cluster_members(failure_id)",
+        ),
+    ),
 )
 
 LATEST_VERSION = max(migration.version for migration in MIGRATIONS)

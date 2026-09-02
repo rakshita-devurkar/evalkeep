@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from evalsmith.storage.clusters import ClusterStore
 from evalsmith.storage.failures import FailureStore, FailureSummary
 from evalsmith.storage.migrations import LATEST_VERSION, MIGRATIONS, Migration, apply_migrations
 from evalsmith.storage.store import (
@@ -15,6 +16,7 @@ from evalsmith.storage.store import (
 __all__ = [
     "LATEST_VERSION",
     "MIGRATIONS",
+    "ClusterStore",
     "FailureStore",
     "FailureSummary",
     "Migration",

@@ -28,10 +28,22 @@ from evalsmith.commands.detect_cmd import (
     run_detection,
     show_failure,
 )
+from evalsmith.commands.discover_cmd import (
+    ClusterDetail,
+    dismiss_cluster,
+    list_clusters,
+    merge_clusters,
+    rename_cluster,
+    restore_cluster,
+    run_discovery,
+    show_cluster,
+    split_cluster,
+)
 from evalsmith.commands.ingest_cmd import ingest_traces
 from evalsmith.commands.init_cmd import Action, initialize_project
 from evalsmith.commands.trace_cmd import list_traces, show_trace
 from evalsmith.detection import DetectionReport
+from evalsmith.discovery import DiscoveryReport
 from evalsmith.errors import EvalsmithError, ExitCode
 from evalsmith.failures import FailureStatus
 from evalsmith.ingest import DEFAULT_SAMPLE_LIMIT, IngestMode, IngestReport
@@ -51,6 +63,10 @@ failures_app = typer.Typer(
     name="failures", help="Inspect and review failure candidates.", no_args_is_help=True
 )
 app.add_typer(failures_app)
+clusters_app = typer.Typer(
+    name="clusters", help="Inspect and edit failure families.", no_args_is_help=True
+)
+app.add_typer(clusters_app)
 
 console = Console()
 err_console = Console(stderr=True)
@@ -496,6 +512,202 @@ def _failure_status_markup(status: FailureStatus) -> str:
         FailureStatus.DISMISSED: "dim",
     }
     return f"[{styles[status]}]{status.value}[/]"
+
+
+@app.command()
+def discover(
+    project: Path = PROJECT_OPTION,
+    skip_analysis: bool = typer.Option(
+        False, "--skip-analysis", help="Group what is already analyzed, analyzing nothing."
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Re-cluster even if it discards reviewer edits."
+    ),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Ignore the embedding cache."),
+) -> None:
+    """Analyze, embed, cluster and select representatives."""
+    report = _run(
+        lambda: run_discovery(
+            project_root=project,
+            analyze=not skip_analysis,
+            force=force,
+            use_cache=not no_cache,
+        )
+    )
+    _render_discovery(report)
+
+
+@clusters_app.command("list")
+def clusters_list(
+    project: Path = PROJECT_OPTION,
+    include_dismissed: bool = typer.Option(
+        True, "--dismissed/--no-dismissed", help="Include dismissed families."
+    ),
+) -> None:
+    """List failure families."""
+    clusters = _run(
+        lambda: list_clusters(project_root=project, include_dismissed=include_dismissed)
+    )
+    if not clusters:
+        console.print("[dim]No clusters. Run 'evalsmith discover'.[/]")
+        return
+
+    table = Table(box=None, pad_edge=False)
+    table.add_column("cluster_id", style="cyan")
+    table.add_column("size", justify="right")
+    table.add_column("reps", justify="right")
+    table.add_column("label")
+    table.add_column("state", style="dim")
+    for cluster in clusters:
+        state = "dismissed" if cluster.dismissed else ("renamed" if cluster.labelled_by else "")
+        table.add_row(
+            cluster.cluster_id,
+            str(cluster.size),
+            str(len(cluster.representatives)),
+            f"[dim]{cluster.label}[/]" if cluster.dismissed else cluster.label,
+            state,
+        )
+    console.print(table)
+
+    total = sum(cluster.size for cluster in clusters)
+    console.print(f"\n[dim]{len(clusters)} clusters covering {total} failures[/]")
+
+
+@clusters_app.command("show")
+def clusters_show(
+    identifier: str = typer.Argument(..., metavar="ID", help="Cluster, failure or trace ID."),
+    project: Path = PROJECT_OPTION,
+) -> None:
+    """Inspect one family and its representatives."""
+    detail = _run(lambda: show_cluster(identifier, project_root=project))
+    _render_cluster(detail)
+
+
+@clusters_app.command("rename")
+def clusters_rename(
+    identifier: str = typer.Argument(..., metavar="ID", help="Cluster, failure or trace ID."),
+    label: str = typer.Argument(..., help="New label."),
+    project: Path = PROJECT_OPTION,
+    reviewer: str | None = typer.Option(None, "--reviewer", help="Who is renaming."),
+) -> None:
+    """Rename a family."""
+    cluster = _run(
+        lambda: rename_cluster(identifier, label, project_root=project, reviewer=reviewer)
+    )
+    console.print(f"[bold green]renamed[/] {cluster.cluster_id} to {cluster.label!r}")
+
+
+@clusters_app.command("dismiss")
+def clusters_dismiss(
+    identifier: str = typer.Argument(..., metavar="ID", help="Cluster, failure or trace ID."),
+    project: Path = PROJECT_OPTION,
+    reviewer: str | None = typer.Option(None, "--reviewer", help="Who is deciding."),
+) -> None:
+    """Mark a family as not worth regression coverage. It is kept, not deleted."""
+    cluster = _run(lambda: dismiss_cluster(identifier, project_root=project, reviewer=reviewer))
+    console.print(f"[bold yellow]dismissed[/] {cluster.cluster_id} ({cluster.label})")
+
+
+@clusters_app.command("restore")
+def clusters_restore(
+    identifier: str = typer.Argument(..., metavar="ID", help="Cluster, failure or trace ID."),
+    project: Path = PROJECT_OPTION,
+) -> None:
+    """Undo a dismissal."""
+    cluster = _run(lambda: restore_cluster(identifier, project_root=project))
+    console.print(f"[bold green]restored[/] {cluster.cluster_id} ({cluster.label})")
+
+
+@clusters_app.command("merge")
+def clusters_merge(
+    identifiers: list[str] = typer.Argument(..., metavar="ID...", help="Clusters to merge."),
+    project: Path = PROJECT_OPTION,
+    reviewer: str | None = typer.Option(None, "--reviewer", help="Who is deciding."),
+) -> None:
+    """Combine several families into one."""
+    cluster = _run(lambda: merge_clusters(identifiers, project_root=project, reviewer=reviewer))
+    console.print(
+        f"[bold green]merged[/] into {cluster.cluster_id} "
+        f"({cluster.size} failures, {cluster.label!r})"
+    )
+
+
+@clusters_app.command("split")
+def clusters_split(
+    identifier: str = typer.Argument(..., metavar="ID", help="Cluster to split."),
+    failure: list[str] = typer.Option(..., "--failure", help="Failure to move out. Repeatable."),
+    project: Path = PROJECT_OPTION,
+    reviewer: str | None = typer.Option(None, "--reviewer", help="Who is deciding."),
+) -> None:
+    """Move some members of a family into a new family of their own."""
+    remainder, extracted = _run(
+        lambda: split_cluster(identifier, failure, project_root=project, reviewer=reviewer)
+    )
+    console.print(
+        f"[bold green]split[/] {extracted.cluster_id} ({extracted.size}) "
+        f"out of {remainder.cluster_id} ({remainder.size})"
+    )
+
+
+def _render_discovery(report: DiscoveryReport) -> None:
+    summary = Table(box=None, pad_edge=False, show_header=False)
+    summary.add_column(style="bold")
+    summary.add_column(justify="right")
+    summary.add_row("embedder", report.embedder)
+    summary.add_row("failures", str(report.considered))
+    if report.unanalyzed:
+        summary.add_row("not analyzed", f"[yellow]{report.unanalyzed}[/]")
+    summary.add_row("clusters", f"[green]{report.clusters}[/]")
+    summary.add_row("largest", str(report.largest))
+    summary.add_row("singletons", str(report.singletons))
+    summary.add_row("representatives", str(report.representatives))
+    summary.add_row("embedded", str(report.embedded))
+    if report.from_cache:
+        summary.add_row("from cache", str(report.from_cache))
+    if report.kept_labels:
+        summary.add_row("labels kept", str(report.kept_labels))
+    if report.discarded_edits:
+        summary.add_row("edits discarded", f"[red]{report.discarded_edits}[/]")
+    console.print(summary)
+
+    parameters = ", ".join(f"{key}={value}" for key, value in sorted(report.parameters.items()))
+    console.print(f"[dim]{parameters}[/]")
+    console.print("\nNext: [bold]evalsmith clusters list[/]")
+
+
+def _render_cluster(detail: ClusterDetail) -> None:
+    cluster = detail.cluster
+    header = Table(box=None, pad_edge=False, show_header=False)
+    header.add_column(style="bold")
+    header.add_column()
+    header.add_row("cluster_id", cluster.cluster_id)
+    header.add_row("label", cluster.label)
+    header.add_row("size", str(cluster.size))
+    if cluster.labelled_by:
+        header.add_row("edited by", cluster.labelled_by)
+    if cluster.dismissed:
+        header.add_row("state", "[yellow]dismissed[/]")
+    console.print(header)
+
+    console.print("\n[bold]members[/]")
+    table = Table(box=None, pad_edge=False)
+    table.add_column("failure_id", style="cyan")
+    table.add_column("trace_id")
+    table.add_column("dist", justify="right")
+    table.add_column("role")
+    table.add_column("severity")
+    table.add_column("summary")
+    for member in cluster.members:
+        analysis = detail.analyses.get(member.failure_id)
+        table.add_row(
+            member.failure_id,
+            detail.trace_ids.get(member.failure_id, ""),
+            f"{member.distance:.2f}",
+            ", ".join(role.value for role in member.roles) or "[dim]-[/]",
+            _severity_markup(analysis.severity.value) if analysis else "",
+            analysis.summary if analysis else "",
+        )
+    console.print(table)
 
 
 def _severity_markup(severity: str) -> str:

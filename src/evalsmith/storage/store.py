@@ -25,6 +25,7 @@ from typing import Any
 from evalsmith.errors import CommandError
 from evalsmith.hashing import content_hash
 from evalsmith.redaction import RedactionSummary
+from evalsmith.storage.clusters import ClusterStore
 from evalsmith.storage.failures import FailureStore
 from evalsmith.storage.migrations import apply_migrations
 from evalsmith.trace import NormalizedTrace, ToolCallEvent, ToolResultEvent
@@ -101,6 +102,11 @@ class TraceStore:
             yield cls(connection)
         finally:
             connection.close()
+
+    @property
+    def clusters(self) -> ClusterStore:
+        """Clusterings, sharing this store's connection."""
+        return ClusterStore(self._connection)
 
     @property
     def failures(self) -> FailureStore:

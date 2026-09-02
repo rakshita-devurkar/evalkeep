@@ -67,6 +67,25 @@ class AnalyzerConfig(BaseModel):
     max_tokens: int = 16000
 
 
+class ClusteringConfig(BaseModel):
+    """How failures are embedded and grouped.
+
+    Every field is stored with the clustering run that used it, so a grouping
+    can always be reproduced or explained.
+    """
+
+    embedder: str = "hashing"
+    dimensions: int = 512
+    #: Recorded and applied even where the algorithm is deterministic, so that
+    #: swapping in a randomized one later cannot quietly break reproducibility.
+    seed: int = 0
+    algorithm: str = "agglomerative"
+    metric: str = "cosine"
+    linkage: str = "average"
+    #: Cosine distance above which two failures are different families.
+    threshold: float = 0.55
+
+
 class ProjectConfig(BaseModel):
     """The contents of ``evalsmith.yaml``."""
 
@@ -75,6 +94,7 @@ class ProjectConfig(BaseModel):
     state_dir: str = STATE_DIRNAME
     redaction: RedactionConfig = Field(default_factory=RedactionConfig)
     analyzer: AnalyzerConfig = Field(default_factory=AnalyzerConfig)
+    clustering: ClusteringConfig = Field(default_factory=ClusteringConfig)
 
     def to_yaml(self) -> str:
         return yaml.safe_dump(

@@ -6,9 +6,11 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 dependencies = [
+    "numpy>=2.4.6",
     "pydantic>=2.13.5",
     "pyyaml>=6.0.3",
     "rich>=15.0.0",
+    "scikit-learn>=1.9.0",
     "typer>=0.27.2",
 ]
 
@@ -53,6 +55,11 @@ warn_unreachable = true
 [[tool.mypy.overrides]]
 # Optional dependency: not installed in the default dev environment.
 module = ["anthropic.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# scikit-learn ships no type information.
+module = ["sklearn.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

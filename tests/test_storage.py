@@ -373,3 +373,109 @@ class TestFailureStorage:
         for index in range(3):
             store.add(make_trace(f"trace-{index}", input={"text": f"question {index}"}))
         assert [t.trace_id for t in store.iter_traces()] == ["trace-0", "trace-1", "trace-2"]
+
+
+class TestClusterStorage:
+    def _cluster(self, failure_ids: list[str]) -> Any:
+        from evalsmith.clusters import Cluster, ClusterMember, MemberRole
+
+        members = [
+            ClusterMember(failure_id=fid, distance=0.1 * index)
+            for index, fid in enumerate(failure_ids)
+        ]
+        members[0].roles.append(MemberRole.CENTRAL)
+        return Cluster.build(label="wrong_tool_argument in tool_arguments", members=members)
+
+    def _run(self) -> Any:
+        from evalsmith.clusters import ClusteringRun
+
+        return ClusteringRun(
+            run_id="run-1",
+            embedder="hashing:512:0",
+            dimensions=512,
+            parameters={"threshold": 0.55, "seed": 0},
+            failures=2,
+        )
+
+    def _seed(self, store: TraceStore, count: int = 2) -> list[str]:
+        from evalsmith.detectors import Signal, SignalKind
+        from evalsmith.failures import Failure
+
+        failure_ids: list[str] = []
+        for index in range(count):
+            trace_id = f"trace-{index}"
+            store.add(make_trace(trace_id, input={"text": f"question {index}"}))
+            failure = Failure.from_signals(
+                trace_id,
+                [
+                    Signal(
+                        detector="explicit_status",
+                        kind=SignalKind.EXPLICIT_STATUS,
+                        source="outcome.status",
+                        summary="marked failed",
+                    )
+                ],
+            )
+            store.failures.save(failure)
+            failure_ids.append(failure.failure_id)
+        return failure_ids
+
+    def test_migration_four_creates_the_cluster_tables(self, tmp_path: Path) -> None:
+        connection = sqlite3.connect(tmp_path / "db.sqlite")
+        apply_migrations(connection)
+        names = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        assert {"clustering_runs", "clusters", "cluster_members"} <= names
+
+    def test_a_run_round_trips_with_its_parameters(self, store: TraceStore) -> None:
+        failure_ids = self._seed(store)
+        store.clusters.replace_run(self._run(), [self._cluster(failure_ids)])
+        run = store.clusters.current_run()
+        assert run is not None
+        assert run.embedder == "hashing:512:0"
+        assert run.parameters == {"threshold": 0.55, "seed": 0}
+
+    def test_members_and_roles_round_trip(self, store: TraceStore) -> None:
+        from evalsmith.clusters import MemberRole
+
+        failure_ids = self._seed(store)
+        cluster = self._cluster(failure_ids)
+        store.clusters.replace_run(self._run(), [cluster])
+        loaded = store.clusters.get(cluster.cluster_id)
+        assert loaded is not None
+        assert loaded.failure_ids == failure_ids
+        assert MemberRole.CENTRAL in loaded.members[0].roles
+
+    def test_a_new_run_replaces_the_previous_clustering(self, store: TraceStore) -> None:
+        failure_ids = self._seed(store)
+        first = self._cluster(failure_ids)
+        store.clusters.replace_run(self._run(), [first])
+        second = self._cluster(failure_ids[:1])
+        store.clusters.replace_run(self._run(), [second])
+        assert store.clusters.count() == 1
+        assert store.clusters.get(first.cluster_id) is None
+
+    def test_a_cluster_cannot_outlive_its_failures(self, store: TraceStore) -> None:
+        failure_ids = self._seed(store)
+        store.clusters.replace_run(self._run(), [self._cluster(failure_ids)])
+        store._connection.execute("DELETE FROM traces")
+        store._connection.commit()
+        assert store._connection.execute("SELECT COUNT(*) FROM cluster_members").fetchone()[0] == 0
+
+    def test_a_member_must_reference_a_real_failure(self, store: TraceStore) -> None:
+        self._seed(store, count=1)
+        with pytest.raises(sqlite3.IntegrityError):
+            store.clusters.replace_run(self._run(), [self._cluster(["fail-nope"])])
+
+    def test_clusters_are_found_by_member(self, store: TraceStore) -> None:
+        failure_ids = self._seed(store)
+        cluster = self._cluster(failure_ids)
+        store.clusters.replace_run(self._run(), [cluster])
+        found = store.clusters.find_by_failure(failure_ids[1])
+        assert found is not None and found.cluster_id == cluster.cluster_id
+
+    def test_an_empty_store_has_no_run(self, store: TraceStore) -> None:
+        assert store.clusters.current_run() is None
+        assert store.clusters.list() == []
