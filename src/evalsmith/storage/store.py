@@ -28,6 +28,7 @@ from evalsmith.redaction import RedactionSummary
 from evalsmith.storage.clusters import ClusterStore
 from evalsmith.storage.failures import FailureStore
 from evalsmith.storage.migrations import apply_migrations
+from evalsmith.storage.regression import RegressionStore
 from evalsmith.trace import NormalizedTrace, ToolCallEvent, ToolResultEvent
 
 
@@ -107,6 +108,11 @@ class TraceStore:
     def clusters(self) -> ClusterStore:
         """Clusterings, sharing this store's connection."""
         return ClusterStore(self._connection)
+
+    @property
+    def tests(self) -> RegressionStore:
+        """Regression-test drafts, sharing this store's connection."""
+        return RegressionStore(self._connection)
 
     @property
     def failures(self) -> FailureStore:

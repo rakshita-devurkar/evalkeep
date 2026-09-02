@@ -162,6 +162,35 @@ MIGRATIONS: tuple[Migration, ...] = (
             "CREATE INDEX cluster_members_failure ON cluster_members(failure_id)",
         ),
     ),
+    Migration(
+        version=5,
+        name="regression test drafts",
+        statements=(
+            # cluster_id is a plain column, not a foreign key: clusters are
+            # rebuilt by every `discover`, and a test must outlive the grouping
+            # that suggested it.
+            """
+            CREATE TABLE regression_tests (
+                test_id       TEXT PRIMARY KEY,
+                failure_id    TEXT NOT NULL UNIQUE
+                              REFERENCES failures(failure_id) ON DELETE CASCADE,
+                cluster_id    TEXT,
+                status        TEXT NOT NULL,
+                input         TEXT NOT NULL,
+                fixtures      TEXT NOT NULL,
+                expectations  TEXT NOT NULL,
+                warnings      TEXT NOT NULL,
+                provenance    TEXT NOT NULL,
+                reviewer      TEXT,
+                review_reason TEXT,
+                created_at    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX regression_tests_status ON regression_tests(status)",
+            "CREATE INDEX regression_tests_cluster ON regression_tests(cluster_id)",
+        ),
+    ),
 )
 
 LATEST_VERSION = max(migration.version for migration in MIGRATIONS)

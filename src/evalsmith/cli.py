@@ -20,6 +20,7 @@ from evalsmith.adapters import DEFAULT_ADAPTER, available_adapters
 from evalsmith.analysis import Component, FailureType, Severity
 from evalsmith.analysis_run import AnalysisReport
 from evalsmith.commands.analyze_cmd import label_failure, run_analysis
+from evalsmith.commands.dataset_cmd import BuildReport, build_dataset, list_tests, show_test
 from evalsmith.commands.detect_cmd import (
     FailureDetail,
     add_failure,
@@ -47,6 +48,7 @@ from evalsmith.discovery import DiscoveryReport
 from evalsmith.errors import EvalsmithError, ExitCode
 from evalsmith.failures import FailureStatus
 from evalsmith.ingest import DEFAULT_SAMPLE_LIMIT, IngestMode, IngestReport
+from evalsmith.regression import RegressionTest, ReviewStatus
 from evalsmith.storage import StoredTrace
 
 T = TypeVar("T")
@@ -67,6 +69,10 @@ clusters_app = typer.Typer(
     name="clusters", help="Inspect and edit failure families.", no_args_is_help=True
 )
 app.add_typer(clusters_app)
+dataset_app = typer.Typer(
+    name="dataset", help="Generate and inspect regression tests.", no_args_is_help=True
+)
+app.add_typer(dataset_app)
 
 console = Console()
 err_console = Console(stderr=True)
@@ -708,6 +714,175 @@ def _render_cluster(detail: ClusterDetail) -> None:
             analysis.summary if analysis else "",
         )
     console.print(table)
+
+
+@dataset_app.command("build")
+def dataset_build(
+    project: Path = PROJECT_OPTION,
+    all_failures: bool = typer.Option(
+        False, "--all", help="Cover every failure, not just cluster representatives."
+    ),
+    regenerate: bool = typer.Option(
+        False, "--regenerate", help="Rewrite existing drafts. Never touches reviewed tests."
+    ),
+    limit: int | None = typer.Option(None, "--limit", min=1, help="Stop after N tests."),
+) -> None:
+    """Generate pending regression-test drafts."""
+    report = _run(
+        lambda: build_dataset(
+            project_root=project,
+            representatives_only=not all_failures,
+            regenerate=regenerate,
+            limit=limit,
+        )
+    )
+    _render_build(report)
+
+
+@dataset_app.command("list")
+def dataset_list(
+    project: Path = PROJECT_OPTION,
+    status: ReviewStatus | None = typer.Option(None, "--status", help="Filter by status."),
+    limit: int = typer.Option(50, "--limit", min=1, help="Rows to show."),
+    offset: int = typer.Option(0, "--offset", min=0, help="Rows to skip."),
+) -> None:
+    """List regression tests."""
+    listing = _run(
+        lambda: list_tests(project_root=project, status=status, limit=limit, offset=offset)
+    )
+    if not listing.tests:
+        console.print("[dim]No regression tests. Run 'evalsmith dataset build'.[/]")
+        return
+
+    table = Table(box=None, pad_edge=False)
+    table.add_column("test_id", style="cyan")
+    table.add_column("status")
+    table.add_column("checks", justify="right")
+    table.add_column("type")
+    table.add_column("needs", style="yellow")
+    for test in listing.tests:
+        needs = []
+        if not test.has_positive_expectation:
+            needs.append("expectation")
+        if test.contradictions:
+            needs.append("conflict")
+        table.add_row(
+            test.test_id,
+            _test_status_markup(test.status),
+            str(len(test.deterministic_expectations)),
+            test.provenance.failure_type or "",
+            ", ".join(needs),
+        )
+    console.print(table)
+
+    breakdown = ", ".join(
+        f"{count} {status.value}" for status, count in sorted(listing.counts.items())
+    )
+    console.print(f"\n[dim]{len(listing.tests)} of {listing.total} ({breakdown})[/]")
+
+
+@dataset_app.command("show")
+def dataset_show(
+    identifier: str = typer.Argument(..., metavar="ID", help="Test, failure or trace ID."),
+    project: Path = PROJECT_OPTION,
+) -> None:
+    """Inspect one regression test and its provenance."""
+    test = _run(lambda: show_test(identifier, project_root=project))
+    _render_test(test)
+
+
+def _test_status_markup(status: ReviewStatus) -> str:
+    styles = {
+        ReviewStatus.DRAFT: "yellow",
+        ReviewStatus.APPROVED: "green",
+        ReviewStatus.REJECTED: "dim",
+    }
+    return f"[{styles[status]}]{status.value}[/]"
+
+
+def _render_build(report: BuildReport) -> None:
+    summary = Table(box=None, pad_edge=False, show_header=False)
+    summary.add_column(style="bold")
+    summary.add_column(justify="right")
+    summary.add_row("considered", str(report.considered))
+    summary.add_row("drafts created", f"[green]{report.created}[/]")
+    if report.regenerated:
+        summary.add_row("regenerated", str(report.regenerated))
+    if report.skipped:
+        summary.add_row("already drafted", str(report.skipped))
+    if report.reviewed_kept:
+        summary.add_row("reviewed, kept", str(report.reviewed_kept))
+    if report.unanalyzed:
+        summary.add_row("not analyzed", f"[yellow]{report.unanalyzed}[/]")
+    if report.needs_expectation:
+        summary.add_row("need an expectation", f"[yellow]{report.needs_expectation}[/]")
+    if report.contradictions:
+        summary.add_row("contradictions", f"[red]{report.contradictions}[/]")
+    console.print(summary)
+
+    for test_id, warning in report.warnings[:10]:
+        console.print(f"[yellow]{test_id}[/] [dim]{warning}[/]")
+    if len(report.warnings) > 10:
+        console.print(f"[dim]... and {len(report.warnings) - 10} more warnings[/]")
+
+    console.print("\n[dim]Drafts are pending: nothing is exported until it is approved.[/]")
+    console.print("Next: [bold]evalsmith dataset list[/]")
+
+
+def _render_test(test: RegressionTest) -> None:
+    header = Table(box=None, pad_edge=False, show_header=False)
+    header.add_column(style="bold")
+    header.add_column()
+    header.add_row("test_id", test.test_id)
+    header.add_row("status", _test_status_markup(test.status))
+    header.add_row("trace_id", test.provenance.trace_id)
+    header.add_row("failure_id", test.failure_id)
+    if test.provenance.cluster_label:
+        header.add_row("cluster", test.provenance.cluster_label)
+    if test.provenance.representative_roles:
+        header.add_row("selected as", ", ".join(test.provenance.representative_roles))
+    if test.provenance.failure_type:
+        header.add_row("failure type", test.provenance.failure_type)
+    if test.provenance.severity:
+        header.add_row("severity", _severity_markup(test.provenance.severity))
+    header.add_row("analyzer", test.provenance.analyzer or "")
+    header.add_row("generator", f"v{test.provenance.generator_version}")
+    console.print(header)
+
+    if test.input.text:
+        console.print(f"\n[bold]input[/]\n{test.input.text}")
+    for message in test.input.messages:
+        console.print(f"\n[bold]input:{message['role']}[/]\n{message['content']}")
+
+    console.print("\n[bold]expectations[/]")
+    table = Table(box=None, pad_edge=False)
+    table.add_column("type")
+    table.add_column("check")
+    table.add_column("kind", style="dim")
+    for expectation in test.expectations:
+        table.add_row(
+            expectation.type.value,
+            expectation.describe(),
+            "deterministic" if expectation.deterministic else "needs a judge",
+        )
+    console.print(table)
+
+    if test.fixtures:
+        console.print("\n[bold]fixtures[/] [dim](tool results the original agent saw)[/]")
+        fixtures = Table(box=None, pad_edge=False)
+        fixtures.add_column("tool")
+        fixtures.add_column("arguments")
+        fixtures.add_column("result")
+        for fixture in test.fixtures:
+            fixtures.add_row(
+                fixture.tool,
+                json.dumps(fixture.arguments, sort_keys=True),
+                json.dumps(fixture.result, sort_keys=True, default=str),
+            )
+        console.print(fixtures)
+
+    for warning in test.warnings:
+        console.print(f"\n[yellow]needs review:[/] {warning}")
 
 
 def _severity_markup(severity: str) -> str:

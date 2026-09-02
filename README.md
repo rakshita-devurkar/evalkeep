@@ -30,8 +30,10 @@ Version 0.1 is under construction. Working today:
 | `evalsmith analyze` / `failures label` | ✅ |
 | `evalsmith discover` | ✅ |
 | `evalsmith clusters list` / `show` / `rename` / `merge` / `split` / `dismiss` | ✅ |
-| `evalsmith dataset build` | planned |
-| `evalsmith dataset build` | planned |
+| `evalsmith dataset build` / `list` / `show` | ✅ |
+| `evalsmith review` | planned |
+| `evalsmith dataset build` / `list` / `show` | ✅ |
+| `evalsmith review` | planned |
 | `evalsmith review` | planned |
 | `evalsmith export` | planned |
 | `evalsmith run` / `compare` | planned |
@@ -97,6 +99,14 @@ uv run evalsmith discover
 uv run evalsmith clusters list
 uv run evalsmith clusters show <cluster-id>
 uv run evalsmith clusters rename <cluster-id> "Refunds the wrong order"
+```
+
+Then draft a regression test for each family's representatives:
+
+```bash
+uv run evalsmith dataset build
+uv run evalsmith dataset list
+uv run evalsmith dataset show trace-1042
 ```
 
 ## Trace format
@@ -385,6 +395,78 @@ Clustering builds a full pairwise distance matrix, so cost grows quadratically:
 
 Comfortable to a few thousand failures; beyond ~20,000 the matrix dominates.
 HDBSCAN, on the 0.2 roadmap, is the fix.
+
+## Regression tests
+
+`evalsmith dataset build` turns each cluster representative into a **pending
+draft**. Only representatives, by default — that is the point of clustering: a
+suite wants one good test per failure family, not forty copies of one bug.
+`--all` covers every failure instead.
+
+### What a trace can and cannot tell you
+
+This shapes the whole generator. A trace shows exactly **what the agent did
+wrong**, so the forbidding half of a test is derivable and deterministic. It
+does **not** show what the agent should have done instead — that is a judgement
+about intent that no amount of reading the trace supplies.
+
+So generation writes the half it can defend and records, as a warning, that a
+reviewer still owes the other half. Against the guide's own example:
+
+```
+input:  "Refund my latest order."
+generated:  refund_order.order_id != 'order-A'      ← read off the trace
+needs review: no positive expectation               ← "== order-C" is a judgement
+```
+
+Nothing in that trace *says* order-C is correct; knowing it requires reading
+`placed_at` and interpreting "latest". That is exactly the point where automated
+analysis could encode the wrong expectation, so it is left to a person.
+
+| Failure type | Derived deterministically |
+| --- | --- |
+| `wrong_tool_argument` | `tool_argument_not_equals` for each argument of the implicated call |
+| `wrong_tool_selection` | `tool_not_called` for the tool that was used |
+| `unnecessary_action` | `max_tool_calls` at one below the observed count, or `tool_not_called` |
+| everything else | nothing checkable — falls back to a `human_rubric` |
+
+Two deliberate limits. Assertions target the **last** tool call, because earlier
+calls in a trace are usually lookups that succeeded and forbidding their
+arguments would forbid correct behaviour — the draft says so in a warning. And
+the call limit for over-action is set to one below what was observed, because
+the trace proves N was too many but not what the right number is.
+
+The `human_rubric` is a last resort, not a default: it costs an LLM judge at run
+time, so it only appears where nothing checkable could be read off the trace.
+
+### Stable test IDs
+
+A test ID is derived from the **trace's own input** plus a hash of the trace ID:
+
+```
+refund_my_latest_order_2e46a1ea
+```
+
+Readable, unique, and built only from immutable facts. Deliberately *not* from
+the cluster label or the analysis — both are mutable. A reviewer renaming a
+cluster, or a re-analysis changing a failure type, must never rename a test that
+is already committed to Git and referenced by past run results.
+
+### Contradictions are caught at generation
+
+A contradictory test fails on every agent, including a correct one, so it
+reports a regression that is really a bug in the suite. Every pair of
+expectations is checked — required-and-forbidden tools, an argument required to
+equal two values, an argument of a forbidden tool, contains-and-not-contains,
+two different call limits — at generation, and again when a reviewer edits.
+
+### Drafts only
+
+`dataset build` writes nothing but drafts, and each carries full provenance: the
+trace, the failure, its evidence, the cluster and the representative role it was
+selected for, the analysis and analyzer, the source trace's content hash, and
+the generator version. Re-running is a no-op; `--regenerate` rewrites drafts and
+**never** touches a reviewed test.
 
 ## Storage
 

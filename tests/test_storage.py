@@ -479,3 +479,129 @@ class TestClusterStorage:
     def test_an_empty_store_has_no_run(self, store: TraceStore) -> None:
         assert store.clusters.current_run() is None
         assert store.clusters.list() == []
+
+
+class TestRegressionTestStorage:
+    def _test(self, failure_id: str) -> Any:
+        from evalsmith.regression import (
+            CaseInput,
+            Expectation,
+            ExpectationType,
+            Fixture,
+            Provenance,
+            RegressionTest,
+        )
+
+        return RegressionTest(
+            test_id="refund_my_latest_order_abc12345",
+            failure_id=failure_id,
+            input=CaseInput(text="Refund my latest order."),
+            fixtures=[Fixture(tool="refund_order", arguments={"order_id": "order-A"})],
+            expectations=[
+                Expectation(
+                    type=ExpectationType.TOOL_ARGUMENT_NOT_EQUALS,
+                    tool="refund_order",
+                    path="order_id",
+                    value="order-A",
+                )
+            ],
+            warnings=["needs a positive expectation"],
+            provenance=Provenance(
+                trace_id="trace-1",
+                failure_id=failure_id,
+                content_hash="sha256:abc",
+                cluster_id="cl-gone",
+            ),
+        )
+
+    def _seed(self, store: TraceStore) -> str:
+        from evalsmith.failures import Failure
+
+        store.add(make_trace("trace-1"))
+        failure = Failure.from_signals("trace-1", [])
+        store.failures.save(failure)
+        return failure.failure_id
+
+    def test_migration_five_creates_the_table(self, tmp_path: Path) -> None:
+        connection = sqlite3.connect(tmp_path / "db.sqlite")
+        apply_migrations(connection)
+        names = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        assert "regression_tests" in names
+
+    def test_a_test_round_trips(self, store: TraceStore) -> None:
+        from evalsmith.regression import ExpectationType
+
+        failure_id = self._seed(store)
+        store.tests.save(self._test(failure_id))
+        loaded = store.tests.get_by_failure(failure_id)
+        assert loaded is not None
+        assert loaded.input.text == "Refund my latest order."
+        assert loaded.expectations[0].type is ExpectationType.TOOL_ARGUMENT_NOT_EQUALS
+        assert loaded.fixtures[0].arguments == {"order_id": "order-A"}
+        assert loaded.warnings == ["needs a positive expectation"]
+        assert loaded.provenance.content_hash == "sha256:abc"
+
+    def test_one_test_per_failure_is_enforced(self, store: TraceStore) -> None:
+        failure_id = self._seed(store)
+        store.tests.save(self._test(failure_id))
+        second = self._test(failure_id)
+        second.test_id = "another_id_00000000"
+        with pytest.raises(sqlite3.IntegrityError):
+            store.tests.save(second)
+
+    def test_saving_twice_updates_in_place(self, store: TraceStore) -> None:
+        from evalsmith.regression import ReviewStatus
+
+        failure_id = self._seed(store)
+        test = self._test(failure_id)
+        store.tests.save(test)
+        test.status = ReviewStatus.APPROVED
+        store.tests.save(test)
+        loaded = store.tests.get(test.test_id)
+        assert loaded is not None and loaded.status is ReviewStatus.APPROVED
+        assert store.tests.count() == 1
+
+    def test_a_test_cannot_outlive_its_failure(self, store: TraceStore) -> None:
+        failure_id = self._seed(store)
+        store.tests.save(self._test(failure_id))
+        store._connection.execute("DELETE FROM traces")
+        store._connection.commit()
+        assert store.tests.count() == 0
+
+    def test_a_test_survives_the_cluster_that_suggested_it(self, store: TraceStore) -> None:
+        """cluster_id is a plain column: clusters are rebuilt, tests are not."""
+        failure_id = self._seed(store)
+        store.tests.save(self._test(failure_id))
+        loaded = store.tests.get_by_failure(failure_id)
+        assert loaded is not None
+        assert loaded.provenance.cluster_id == "cl-gone"
+        assert store.clusters.count() == 0
+
+    def test_filtering_by_status(self, store: TraceStore) -> None:
+        from evalsmith.regression import ReviewStatus
+
+        failure_id = self._seed(store)
+        store.tests.save(self._test(failure_id))
+        assert store.tests.count(status=ReviewStatus.DRAFT) == 1
+        assert store.tests.count(status=ReviewStatus.APPROVED) == 0
+        assert store.tests.counts_by_status() == {ReviewStatus.DRAFT: 1}
+
+    def test_listing_and_iterating(self, store: TraceStore) -> None:
+        failure_id = self._seed(store)
+        store.tests.save(self._test(failure_id))
+        assert [t.failure_id for t in store.tests.list()] == [failure_id]
+        assert [t.failure_id for t in store.tests.iter_all()] == [failure_id]
+
+    def test_an_unknown_test_reads_as_none(self, store: TraceStore) -> None:
+        assert store.tests.get("nope") is None
+        assert store.tests.get_by_failure("nope") is None
+
+    def test_deleting_a_test(self, store: TraceStore) -> None:
+        failure_id = self._seed(store)
+        test = self._test(failure_id)
+        store.tests.save(test)
+        store.tests.delete(test.test_id)
+        assert store.tests.get(test.test_id) is None
