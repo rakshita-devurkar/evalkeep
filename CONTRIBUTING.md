@@ -68,8 +68,10 @@ breaks one of them will be asked to change:
 - **Automation never overwrites human judgement.** Re-running any stage
   refreshes derived data and leaves reviews, labels and edits alone. If you add
   a stage, it needs the same property.
-- **Nothing unredacted is stored.** Redaction happens in memory, before
-  storage, including on anything a model or a person writes back.
+- **Values are redacted before storage.** Redaction happens in memory, before
+  storage, including on anything a model or a person writes back. Identifiers
+  are the documented exception, not an oversight — see the
+  [roadmap](docs/roadmap.md).
 - **Never a shell.** Subprocesses take an argument list. Values that came from a
   trace are embedded as JSON, never concatenated into code.
 - **Say only what the numbers support.** If a sample is too small for a claim,

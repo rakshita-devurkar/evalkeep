@@ -93,9 +93,12 @@ letting you claim it.
 
 ## What it guarantees
 
-- **Nothing unredacted is ever stored.** Emails, phone numbers, Luhn-checked
+- **Values are redacted before storage.** Emails, phone numbers, Luhn-checked
   payment cards, token prefixes and credential fields are removed in memory,
-  between validation and storage, with no path around it.
+  between validation and storage, with no path around it. Identifiers
+  (`trace_id`, `tool`, …) are deliberately left intact so the pipeline's links
+  survive — if yours embed customer data, see
+  [the roadmap](docs/roadmap.md#nothing-unredacted-is-ever-stored-is-too-strong).
 - **Automation never overwrites human judgement.** Re-running detection,
   analysis, clustering or generation refreshes derived data and leaves your
   reviews, labels and cluster edits alone.
@@ -112,6 +115,7 @@ letting you claim it.
 
 - **[How it works](docs/pipeline.md)** — the design decisions behind each stage
 - **[Privacy and security](docs/security.md)** — redaction, secrets, execution safety
+- **[Roadmap](docs/roadmap.md)** — what 0.1 does not do yet, and which gaps could mislead
 - **[Contributing](CONTRIBUTING.md)** — setup, conventions, and what is most wanted
 - **[Changelog](CHANGELOG.md)** — including what 0.x compatibility does and does not promise
 
