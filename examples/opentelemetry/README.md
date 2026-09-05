@@ -5,6 +5,11 @@
 [OpenInference](https://github.com/Arize-ai/openinference) semantic conventions.
 Reading all three side by side shows what each format can and cannot carry.
 
+> These are the **same five interactions** as the JSONL example, in a different
+> format. Ingest them into their own project — putting two representations of one
+> interaction in the same database is a genuine ID conflict, and Evalkeep will
+> (correctly) refuse the second one.
+
 ```bash
 evalkeep ingest examples/opentelemetry/spans.json --format otlp
 evalkeep detect

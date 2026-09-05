@@ -4,6 +4,11 @@
 [`../refund-agent/traces.jsonl`](../refund-agent/traces.jsonl), as one `Run`
 object per line.
 
+> These are the **same five interactions** as the JSONL example, in a different
+> format. Ingest them into their own project — putting two representations of one
+> interaction in the same database is a genuine ID conflict, and Evalkeep will
+> (correctly) refuse the second one.
+
 ```bash
 evalkeep ingest examples/langsmith/runs.jsonl --format langsmith
 evalkeep detect

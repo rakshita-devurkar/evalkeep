@@ -27,54 +27,32 @@ Node.js is needed only for `evalkeep run`, which shells out to Promptfoo.
 
 ## Quick start
 
-Everything below works offline, with no API key, against the bundled example.
+The whole pipeline, offline, no API key, against the bundled example:
 
 ```bash
 uv run evalkeep init
-uv run evalkeep ingest examples/refund-agent/traces.jsonl   # validate, redact, store
-uv run evalkeep detect                                      # find evidence-backed failures
-```
+uv run evalkeep ingest examples/refund-agent/traces.jsonl  # validate, redact, store
+uv run evalkeep detect                                     # evidence-backed failures
 
-Already have traces somewhere? Point Evalkeep at an export — no API keys, no
-re-instrumentation:
-
-```bash
-uv run evalkeep ingest spans.json --format otlp        # OpenTelemetry / OpenInference
-uv run evalkeep ingest runs.jsonl --format langsmith   # LangSmith
-```
-
-OpenTelemetry covers the most ground: Langfuse, Braintrust and Phoenix all ingest
-OTLP, so an app instrumented for any of them works here unchanged.
-
-Describe each failure so similar ones can be grouped — by hand, or with a model
-if you configure one:
-
-```bash
 uv run evalkeep failures label trace-1042 \
   --type wrong_tool_argument --component tool_arguments --severity high \
   --summary "Refunded the oldest order instead of the newest order."
-```
 
-Group them, draft a test per representative, and review it:
-
-```bash
 uv run evalkeep discover        # embed, cluster, pick representatives
-uv run evalkeep dataset build   # generate pending drafts
+uv run evalkeep dataset build   # draft a test per representative
 uv run evalkeep review          # approve / edit / reject / skip
-```
 
-Then run the approved suite against two versions of your agent and compare:
-
-```bash
-uv run evalkeep targets add baseline  --type python --path examples/refund-agent/agents/baseline.py  --function call_api
-uv run evalkeep targets add candidate --type python --path examples/refund-agent/agents/candidate.py --function call_api
+uv run evalkeep targets add baseline  --type python --function call_api \
+  --path examples/refund-agent/agents/baseline.py
+uv run evalkeep targets add candidate --type python --function call_api \
+  --path examples/refund-agent/agents/candidate.py
 uv run evalkeep run --target baseline
 uv run evalkeep run --target candidate
 uv run evalkeep compare
 ```
 
-The bundled `baseline.py` reproduces the bug the example traces recorded;
-`candidate.py` fixes it:
+`baseline.py` reproduces the bug the example traces recorded; `candidate.py`
+fixes it:
 
 ```
 baseline pass rate      0.0%
@@ -84,9 +62,18 @@ p-value               0.2500
 Only 3 test(s) changed outcome; that is too few for a trustworthy interval, so none is given.
 ```
 
-That last line is the point. A 0% → 100% improvement is still **not
-statistically significant** on three tests, and Evalkeep says so rather than
-letting you claim it.
+That last line is the point: a 0% → 100% improvement is still **not
+statistically significant** on three tests, and Evalkeep says so.
+
+### Bring your own traces
+
+```bash
+uv run evalkeep ingest spans.json --format otlp        # OpenTelemetry / OpenInference
+uv run evalkeep ingest runs.jsonl --format langsmith   # LangSmith
+```
+
+Adapters read files, never APIs — no credentials, any vendor tier. OpenTelemetry
+covers the most ground, since Langfuse, Braintrust and Phoenix all ingest OTLP.
 
 ## Commands
 
@@ -104,34 +91,25 @@ letting you claim it.
 
 ## What it guarantees
 
-- **Values are redacted before storage.** Emails, phone numbers, Luhn-checked
-  payment cards, token prefixes and credential fields are removed in memory,
-  between validation and storage, with no path around it. Identifiers
-  (`trace_id`, `tool`, …) are deliberately left intact so the pipeline's links
-  survive — if yours embed customer data, see
-  [the roadmap](docs/roadmap.md#nothing-unredacted-is-ever-stored-is-too-strong).
-- **Automation never overwrites human judgement.** Re-running detection,
-  analysis, clustering or generation refreshes derived data and leaves your
-  reviews, labels and cluster edits alone.
-- **Nothing is exported without approval.** Generated tests are drafts; only
-  approved tests reach a runner.
+- **Values are redacted before storage** — in memory, with no path around it.
+  Identifiers can be [pseudonymized](docs/security.md#identifiers) too.
+- **Automation never overwrites human judgement.** Re-running any stage
+  refreshes derived data and leaves your reviews, labels and edits alone.
+- **Nothing is exported without approval.** Generated tests are drafts.
 - **A test that never ran is not a test that failed.** Timeouts and crashed
-  providers are excluded from every rate and reported separately, so an outage
-  cannot read as a regression.
-- **Score changes are not overclaimed.** Significance uses McNemar's exact test,
-  and a confidence interval is withheld — with the reason printed — when too few
-  tests changed outcome to support one.
-- **One lucky pass is not a fix.** `run --repetitions N` executes each test N
-  times and reports a per-case verdict with a confidence interval. A case that
-  only sometimes passes is reported as flaky and never counted as passing.
+  providers are excluded from every rate, so an outage cannot read as a regression.
+- **One lucky pass is not a fix.** `run --repetitions N` reports a per-case
+  verdict; a case that only sometimes passes is flaky, never passing.
+- **Score changes are not overclaimed.** McNemar's exact test, and no confidence
+  interval when the sample cannot support one.
 
 ## Documentation
 
 - **[How it works](docs/pipeline.md)** — the design decisions behind each stage
 - **[Privacy and security](docs/security.md)** — redaction, secrets, execution safety
-- **[Roadmap](docs/roadmap.md)** — what 0.1 does not do yet, and which gaps could mislead
-- **[Contributing](CONTRIBUTING.md)** — setup, conventions, and what is most wanted
-- **[Changelog](CHANGELOG.md)** — including what 0.x compatibility does and does not promise
+- **[Roadmap](docs/roadmap.md)** — what 0.1 does not do yet
+- **[Contributing](CONTRIBUTING.md)** — setup, conventions, what is most wanted
+- **[Changelog](CHANGELOG.md)** — what 0.x compatibility does and does not promise
 
 ## Exit codes
 
@@ -144,21 +122,18 @@ letting you claim it.
 ## Development
 
 ```bash
-uv sync
-uv run pytest                # 753 tests, 1 opt-in
-uv run ruff check . && uv run ruff format --check .
-uv run mypy                  # strict
-uv run pre-commit install
+uv sync && uv run pytest              # 944 tests
+uv run ruff check . && uv run mypy    # lint and strict types
 ```
 
-`EVALKEEP_E2E=1 uv run pytest` additionally runs the suite against real
-Promptfoo, which downloads Node packages.
+`EVALKEEP_E2E=1 uv run pytest` also runs the suite against real Promptfoo.
 
 ## Status
 
-Version 0.1 is feature-complete: the whole pipeline runs, from a raw trace file
-to a statistically honest regression report. Not yet done: provider adapters
-beyond generic JSONL, and the packaging work for a PyPI release.
+0.1 is feature-complete: a raw trace file through to a statistically honest
+regression report, reading OpenTelemetry, LangSmith or its own JSONL. Not yet
+done — multi-turn replay, longitudinal failure history, and a PyPI release. See
+the [roadmap](docs/roadmap.md).
 
 ## License
 
