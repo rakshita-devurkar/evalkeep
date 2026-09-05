@@ -9,10 +9,12 @@ from datetime import datetime
 from evalkeep.runs import (
     BaselinePromotion,
     CaseResult,
+    CaseSummary,
     ErrorKind,
     EvaluationRun,
     Outcome,
     RunStatus,
+    summarize,
 )
 
 
@@ -32,9 +34,9 @@ class RunStore:
             self._connection.execute(
                 """
                 INSERT INTO evaluation_runs (
-                    run_id, target_id, suite_hash, tests, status, runner,
-                    environment, started_at, finished_at, output_dir
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    run_id, target_id, suite_hash, tests, repetitions, status,
+                    runner, environment, started_at, finished_at, output_dir
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(run_id) DO UPDATE SET
                     status = excluded.status,
                     tests = excluded.tests,
@@ -46,6 +48,7 @@ class RunStore:
                     run.target_id,
                     run.suite_hash,
                     run.tests,
+                    run.repetitions,
                     run.status.value,
                     run.runner,
                     json.dumps(run.environment, sort_keys=True),
@@ -58,14 +61,15 @@ class RunStore:
             self._connection.executemany(
                 """
                 INSERT INTO test_results (
-                    run_id, test_id, outcome, error_kind, error, latency_ms,
-                    observation, failed_assertions
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    run_id, test_id, repetition, outcome, error_kind, error,
+                    latency_ms, observation, failed_assertions
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
                         run.run_id,
                         result.test_id,
+                        result.repetition,
                         result.outcome.value,
                         result.error_kind.value if result.error_kind else None,
                         result.error,
@@ -128,7 +132,7 @@ class RunStore:
         return [
             _build_result(row)
             for row in self._connection.execute(
-                "SELECT * FROM test_results WHERE run_id = ? ORDER BY test_id",
+                "SELECT * FROM test_results WHERE run_id = ? ORDER BY test_id, repetition",
                 (run_id,),
             )
         ]
@@ -167,6 +171,10 @@ class RunStore:
             )
         ]
 
+    def summaries(self, run_id: str) -> dict[str, CaseSummary]:
+        """Every case in a run, with its repetitions taken together."""
+        return summarize(self.results(run_id))
+
     def counts(self, run_id: str) -> dict[Outcome, int]:
         rows = self._connection.execute(
             "SELECT outcome, COUNT(*) AS n FROM test_results WHERE run_id = ? GROUP BY outcome",
@@ -192,6 +200,7 @@ def _build_run(row: sqlite3.Row) -> EvaluationRun:
         target_id=row["target_id"],
         suite_hash=row["suite_hash"],
         tests=row["tests"],
+        repetitions=row["repetitions"],
         status=RunStatus(row["status"]),
         runner=row["runner"],
         environment=json.loads(row["environment"]),
@@ -210,4 +219,5 @@ def _build_result(row: sqlite3.Row) -> CaseResult:
         latency_ms=row["latency_ms"],
         observation=row["observation"],
         failed_assertions=list(json.loads(row["failed_assertions"])),
+        repetition=row["repetition"],
     )

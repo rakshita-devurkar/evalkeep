@@ -287,6 +287,44 @@ MIGRATIONS: tuple[Migration, ...] = (
             "CREATE INDEX trace_occurrences_hash ON trace_occurrences(content_hash)",
         ),
     ),
+    Migration(
+        version=10,
+        name="repeated execution",
+        statements=(
+            "ALTER TABLE evaluation_runs ADD COLUMN repetitions INTEGER NOT NULL DEFAULT 1",
+            # test_results needs `repetition` in its primary key, and SQLite
+            # cannot alter one, so the table is rebuilt. Existing rows become
+            # repetition 0, which is exactly what a single-execution run was.
+            """
+            CREATE TABLE test_results_rebuilt (
+                run_id            TEXT NOT NULL
+                                  REFERENCES evaluation_runs(run_id) ON DELETE CASCADE,
+                test_id           TEXT NOT NULL,
+                repetition        INTEGER NOT NULL DEFAULT 0,
+                outcome           TEXT NOT NULL,
+                error_kind        TEXT,
+                error             TEXT,
+                latency_ms        INTEGER,
+                observation       TEXT,
+                failed_assertions TEXT NOT NULL DEFAULT '[]',
+                PRIMARY KEY (run_id, test_id, repetition)
+            )
+            """,
+            """
+            INSERT INTO test_results_rebuilt (
+                run_id, test_id, repetition, outcome, error_kind, error,
+                latency_ms, observation, failed_assertions
+            )
+            SELECT run_id, test_id, 0, outcome, error_kind, error,
+                   latency_ms, observation, failed_assertions
+            FROM test_results
+            """,
+            "DROP TABLE test_results",
+            "ALTER TABLE test_results_rebuilt RENAME TO test_results",
+            "CREATE INDEX test_results_outcome ON test_results(outcome)",
+            "CREATE INDEX test_results_case ON test_results(run_id, test_id)",
+        ),
+    ),
 )
 
 LATEST_VERSION = max(migration.version for migration in MIGRATIONS)

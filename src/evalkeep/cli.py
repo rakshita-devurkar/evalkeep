@@ -1189,9 +1189,23 @@ def run(
     project: Path = PROJECT_OPTION,
     target: str = typer.Option(..., "--target", help="Which target to run against."),
     limit: int | None = typer.Option(None, "--limit", min=1, help="Run at most N tests."),
+    repetitions: int = typer.Option(
+        1,
+        "--repetitions",
+        "-r",
+        min=1,
+        help="Execute each test N times. Agents are stochastic; one pass is not a fix.",
+    ),
 ) -> None:
     """Delegate execution of the approved suite to Promptfoo."""
-    outcome = _run(lambda: run_suite(project_root=project, target_id=target, limit=limit))
+    outcome = _run(
+        lambda: run_suite(
+            project_root=project,
+            target_id=target,
+            limit=limit,
+            repetitions=repetitions,
+        )
+    )
     _render_run(outcome)
     raise typer.Exit(ExitCode.OK)
 
@@ -1246,12 +1260,40 @@ def _render_run(outcome: RunOutcome) -> None:
     summary.add_row("target", outcome.run.target_id)
     summary.add_row("runner", outcome.run.runner or "unknown")
     summary.add_row("tests", str(outcome.run.tests))
+    if outcome.run.repetitions > 1:
+        summary.add_row("repetitions", str(outcome.run.repetitions))
     summary.add_row("passed", f"[green]{passed}[/]")
     summary.add_row("failed", f"[red]{failed}[/]" if failed else "0")
     summary.add_row("errors", f"[yellow]{errored}[/]" if errored else "0")
     console.print(summary)
 
+    if outcome.run.repetitions > 1:
+        verdicts = Table(box=None, pad_edge=False)
+        verdicts.add_column("test_id", style="cyan", overflow="fold")
+        verdicts.add_column("verdict")
+        verdicts.add_column("passed", justify="right")
+        verdicts.add_column("95% interval", justify="right")
+        styles = {"pass": "green", "fail": "red", "flaky": "yellow", "error": "dim"}
+        for case in outcome.summaries.values():
+            interval = case.confidence
+            verdicts.add_row(
+                case.test_id,
+                f"[{styles[case.verdict.value]}]{case.verdict.value}[/]",
+                f"{case.passed}/{case.evaluated}" if case.evaluated else "-",
+                f"{interval[0]:.0%} to {interval[1]:.0%}" if interval else "-",
+            )
+        console.print("\n")
+        console.print(verdicts)
+        if outcome.flaky:
+            console.print(
+                f"\n[yellow]{len(outcome.flaky)} case(s) are flaky[/] [dim]— they "
+                "passed some repetitions and failed others, which a single "
+                "execution would have reported as a plain pass or fail.[/]"
+            )
+
     for result in outcome.results:
+        if outcome.run.repetitions > 1:
+            break
         if result.outcome is Outcome.ERROR:
             console.print(
                 f"[yellow]error[/] {result.test_id} "
@@ -1323,7 +1365,8 @@ def runs_list(
     table.add_column("", style="dim")
     for summary in summaries:
         table.add_row(
-            summary.run.run_id[:12],
+            summary.run.run_id[:12]
+            + (f" x{summary.run.repetitions}" if summary.run.repetitions > 1 else ""),
             summary.run.target_id,
             str(summary.counts.get(Outcome.PASS, 0)),
             str(summary.counts.get(Outcome.FAIL, 0)),
@@ -1388,6 +1431,7 @@ def baseline_show(project: Path = PROJECT_OPTION) -> None:
 _CLASSIFICATION_STYLES: dict[Classification, str] = {
     Classification.UNCHANGED_PASS: "green",
     Classification.FIXED: "bold green",
+    Classification.LIKELY_FIXED: "green",
     Classification.REGRESSION: "bold red",
     Classification.UNCHANGED_FAILURE: "red",
     Classification.NOT_COMPARABLE: "yellow",
@@ -1454,9 +1498,22 @@ def _render_comparison(report: ComparisonReport) -> None:
     console.print(table)
 
     for comparison in report.regressions:
-        console.print(f"[bold red]regression[/] {comparison.test_id}")
+        rates = f" [dim]({comparison.rates})[/]" if comparison.rates else ""
+        console.print(f"[bold red]regression[/] {comparison.test_id}{rates}")
     for comparison in report.fixes:
-        console.print(f"[bold green]fixed[/] {comparison.test_id}")
+        rates = f" [dim]({comparison.rates})[/]" if comparison.rates else ""
+        console.print(f"[bold green]fixed[/] {comparison.test_id}{rates}")
+    for comparison in report.comparisons:
+        if comparison.classification is Classification.LIKELY_FIXED:
+            interval = comparison.confidence
+            bound = (
+                f" [dim](95% interval {interval[0]:.0%} to {interval[1]:.0%})[/]"
+                if interval
+                else ""
+            )
+            console.print(
+                f"[green]likely fixed[/] {comparison.test_id} [dim]({comparison.rates})[/]{bound}"
+            )
     for comparison in report.excluded:
         console.print(f"[yellow]excluded[/] {comparison.test_id} [dim]({comparison.reason})[/]")
 
@@ -1498,6 +1555,15 @@ def _render_statistics(report: ComparisonReport) -> None:
             "would produce. Not evidence of no change -- evidence of not enough "
             "evidence.[/]"
         )
+
+    if report.flaky:
+        console.print(
+            f"\n[yellow]{len(report.flaky)} case(s) are flaky[/] and are not "
+            "counted as passing: a case that only sometimes passes has not been "
+            "fixed."
+        )
+    elif report.repeated:
+        console.print("\n[dim]No case was flaky across its repetitions.[/]")
 
     if report.excluded:
         console.print(
