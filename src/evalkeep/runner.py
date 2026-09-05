@@ -32,7 +32,16 @@ from evalkeep.errors import CommandError
 from evalkeep.exporters.promptfoo import build_config
 from evalkeep.redaction import RedactionSummary, Redactor
 from evalkeep.regression import RegressionTest
-from evalkeep.runs import CaseResult, ErrorKind, EvaluationRun, Outcome, RunStatus, suite_hash
+from evalkeep.runs import (
+    CaseResult,
+    CaseSummary,
+    ErrorKind,
+    EvaluationRun,
+    Outcome,
+    RunStatus,
+    suite_hash,
+    summarize,
+)
 from evalkeep.targets import Target, referenced_environment
 
 CONFIG_FILENAME = "promptfooconfig.yaml"
@@ -55,10 +64,20 @@ class RunOutcome:
 
     @property
     def counts(self) -> dict[Outcome, int]:
+        """Per-execution counts. With repetitions these exceed the test count."""
         tally: dict[Outcome, int] = {}
         for result in self.results:
             tally[result.outcome] = tally.get(result.outcome, 0) + 1
         return tally
+
+    @property
+    def summaries(self) -> dict[str, CaseSummary]:
+        """Per-case verdicts, which is what a repeated run is actually for."""
+        return summarize(self.results)
+
+    @property
+    def flaky(self) -> list[CaseSummary]:
+        return [s for s in self.summaries.values() if s.flaky]
 
 
 def write_suite(
@@ -88,6 +107,7 @@ def execute(
     timeout_seconds: int,
     working_directory: Path,
     redactor: Redactor | None = None,
+    repetitions: int = 1,
 ) -> RunOutcome:
     """Run the suite against ``target`` and import what came back."""
     missing = [name for name, present in referenced_environment(target).items() if not present]
@@ -106,6 +126,7 @@ def execute(
         target_id=target.target_id,
         suite_hash=suite_hash([test.test_id for test in tests]),
         tests=len(tests),
+        repetitions=repetitions,
         environment=_environment(),
         output_dir=str(directory),
     )
@@ -117,8 +138,12 @@ def execute(
         str(config_path),
         "--output",
         str(results_path),
+        # Caching would defeat the purpose: repeating a call and getting the
+        # cached answer back measures the cache, not the agent.
         "--no-cache",
     ]
+    if repetitions > 1:
+        argv += ["--repeat", str(repetitions)]
     try:
         # shell=False is the default and is relied upon: every element here can
         # contain text that came out of a recorded trace.
@@ -172,10 +197,23 @@ def import_results(path: Path, *, redactor: Redactor | None = None) -> list[Case
         raise CommandError(f"Could not read the runner's results at {path}: {exc}") from exc
 
     records = (payload.get("results") or {}).get("results") or []
-    return [_result(record, redactor) for record in records if _test_id(record)]
+
+    # The runner returns one row per execution, in order, with repeated runs of
+    # the same case sharing a test ID. Numbering them here is what lets a case
+    # be judged on all of its attempts rather than its last one.
+    seen: dict[str, int] = {}
+    results: list[CaseResult] = []
+    for record in records:
+        test_id = _test_id(record)
+        if not test_id:
+            continue
+        repetition = seen.get(test_id, 0)
+        seen[test_id] = repetition + 1
+        results.append(_result(record, redactor, repetition))
+    return results
 
 
-def _result(record: dict[str, Any], redactor: Redactor) -> CaseResult:
+def _result(record: dict[str, Any], redactor: Redactor, repetition: int = 0) -> CaseResult:
     test_id = _test_id(record)
     failure_reason = record.get("failureReason") or 0
     error = record.get("error") or None
@@ -208,6 +246,7 @@ def _result(record: dict[str, Any], redactor: Redactor) -> CaseResult:
         failed_assertions=[
             redactor.redact_text(reason, summary) for reason in _failed_assertions(record)
         ],
+        repetition=repetition,
     )
 
 

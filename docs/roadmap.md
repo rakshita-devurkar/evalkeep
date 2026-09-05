@@ -15,9 +15,15 @@ than the ordering:
 
 ## Gaps
 
-### Repeated execution and per-case confidence
+### Repeated execution and per-case confidence — *addressed*
 
-**Today.** `run` executes each test once. `compare` then classifies a case as
+**Resolved.** `run --repetitions N` executes each test N times and stores every
+execution. A case now gets a verdict across its repetitions — `pass`, `fail` or
+`flaky` — with a Wilson interval, and `compare` gained `likely_fixed` for a case
+that improved without becoming reliable. A flaky case is never counted as
+passing. See [Repeated execution](pipeline.md#repeated-execution).
+
+**Was.** `run` executed each test once, and `compare` classified a case as
 `fixed` on the strength of that single execution.
 
 **Why it matters.** Agents are stochastic. A case can pass once by chance and be

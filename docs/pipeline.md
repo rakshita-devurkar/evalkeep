@@ -562,6 +562,53 @@ provider, which has nowhere to put them.
 | error | *any* | not comparable — excluded |
 | *any* | error | not comparable — excluded |
 
+### Repeated execution
+
+Agents are stochastic, so one execution cannot distinguish a fix from a lucky
+pass:
+
+```bash
+evalkeep run --target candidate --repetitions 20
+```
+
+Every execution is stored, and each case gets a verdict across all of them:
+
+| Verdict | Meaning |
+| --- | --- |
+| `pass` | Passed every repetition |
+| `fail` | Passed none |
+| `flaky` | Passed some — a finding in its own right |
+| `error` | Never actually evaluated |
+
+```
+test_id                          verdict  passed  95% interval
+refund_my_latest_order_2e46a1ea  flaky     16/20    58% to 92%
+```
+
+The interval is a **Wilson** score interval rather than the normal
+approximation, because these counts are small and one-sided: 20 passes out of 20
+would otherwise get an interval of zero width, claiming a certainty no sample can
+give.
+
+This adds one classification, `likely_fixed`, for a case that improved without
+becoming reliable — and it is deliberately hard to earn. A bare majority does not
+qualify; the *lower bound* of the interval must exceed 50%, so 11 passes out of
+20 stays `unchanged_failure` while 16 out of 20 becomes `likely_fixed`.
+
+**A flaky case is never counted as passing.** It does not lift the candidate
+pass rate and it is not a fix in the paired test. Counting it would reintroduce
+exactly the overclaim that repeating the run was meant to remove:
+
+```
+likely fixed refund_my_latest_order_2e46a1ea (before 0/20, after 16/20)
+candidate pass rate    0.0%
+p-value              1.0000
+1 case(s) are flaky and are not counted as passing.
+```
+
+With `--repetitions 1`, the default, all of this reduces exactly to the original
+four-row truth table — a case is either `pass` or `fail` and nothing changes.
+
 ### Three rules about not overclaiming
 
 **A test that errored is not a data point.** An error says the harness or the

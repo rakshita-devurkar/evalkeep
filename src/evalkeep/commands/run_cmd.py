@@ -77,6 +77,7 @@ def run_suite(
     project_root: Path = Path(),
     target_id: str,
     limit: int | None = None,
+    repetitions: int = 1,
 ) -> RunOutcome:
     """Delegate execution of the approved suite to the configured runner."""
     project = Project.load(project_root.expanduser().resolve())
@@ -96,6 +97,7 @@ def run_suite(
         directory=project.subdir("runs") / f"{target.target_id}-pending",
         command=list(project.config.runner.command),
         timeout_seconds=project.config.runner.timeout_seconds,
+        repetitions=repetitions,
         # Relative paths in a target are relative to the project, not to
         # wherever the command happened to be typed.
         working_directory=project.root,

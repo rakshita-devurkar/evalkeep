@@ -24,7 +24,14 @@ from enum import StrEnum
 
 from scipy.stats import binomtest
 
-from evalkeep.runs import CaseResult, EvaluationRun, Outcome
+from evalkeep.runs import (
+    CaseResult,
+    CaseSummary,
+    EvaluationRun,
+    Outcome,
+    Verdict,
+    summarize,
+)
 
 #: Below this many discordant pairs the normal approximation behind the interval
 #: is not trustworthy, so no interval is reported. A common rule of thumb, and
@@ -40,6 +47,10 @@ class Classification(StrEnum):
 
     UNCHANGED_PASS = "unchanged_pass"
     FIXED = "fixed"
+    #: Improved and now passes most of the time, but not every time. Only
+    #: reachable with repetitions -- a single execution cannot tell the
+    #: difference between this and `fixed`, which is the whole reason to repeat.
+    LIKELY_FIXED = "likely_fixed"
     REGRESSION = "regression"
     UNCHANGED_FAILURE = "unchanged_failure"
     #: One side never ran. Excluded from the counts, reported on its own.
@@ -52,9 +63,15 @@ class Classification(StrEnum):
 COMPARABLE = (
     Classification.UNCHANGED_PASS,
     Classification.FIXED,
+    Classification.LIKELY_FIXED,
     Classification.REGRESSION,
     Classification.UNCHANGED_FAILURE,
 )
+
+#: Classifications that count as the candidate passing, for the paired test.
+#: A case that only sometimes passes is not counted as passing: the point of
+#: repeating was to stop calling that a fix.
+_PASSING = (Classification.UNCHANGED_PASS, Classification.FIXED)
 
 
 @dataclass(frozen=True)
@@ -63,18 +80,56 @@ class CaseComparison:
     classification: Classification
     baseline: CaseResult | None = None
     candidate: CaseResult | None = None
+    baseline_summary: CaseSummary | None = None
+    candidate_summary: CaseSummary | None = None
+
+    @property
+    def flaky(self) -> bool:
+        """Whether either side was inconsistent across its repetitions.
+
+        Orthogonal to the classification: a case can be both a regression and
+        flaky, and hiding one behind the other would lose a real finding.
+        """
+        return any(
+            summary is not None and summary.flaky
+            for summary in (self.baseline_summary, self.candidate_summary)
+        )
+
+    @property
+    def confidence(self) -> tuple[float, float] | None:
+        """How reliably the candidate passes this case, if it was repeated."""
+        if self.candidate_summary is None:
+            return None
+        return self.candidate_summary.confidence
 
     @property
     def reason(self) -> str:
         """Why this pair is not comparable, when it is not."""
         if self.classification is Classification.MISSING:
-            side = "candidate" if self.baseline is not None else "baseline"
+            side = "candidate" if self.baseline_summary is not None else "baseline"
             return f"absent from the {side} run"
-        for label, result in (("baseline", self.baseline), ("candidate", self.candidate)):
-            if result is not None and result.outcome is Outcome.ERROR:
-                kind = result.error_kind.value if result.error_kind else "error"
+        for label, summary, result in (
+            ("baseline", self.baseline_summary, self.baseline),
+            ("candidate", self.candidate_summary, self.candidate),
+        ):
+            if summary is not None and summary.verdict is Verdict.ERROR:
+                kind = (
+                    result.error_kind.value if result is not None and result.error_kind else "error"
+                )
                 return f"{label} {kind}"
         return ""
+
+    @property
+    def rates(self) -> str:
+        """How often each side passed, when either was repeated."""
+        parts = []
+        for label, summary in (
+            ("before", self.baseline_summary),
+            ("after", self.candidate_summary),
+        ):
+            if summary is not None and summary.repetitions > 1:
+                parts.append(f"{label} {summary.passed}/{summary.evaluated}")
+        return ", ".join(parts)
 
 
 @dataclass
@@ -133,25 +188,25 @@ class ComparisonReport:
 
     @property
     def baseline_pass_rate(self) -> float | None:
-        return _rate(
-            sum(
-                1
-                for c in self.comparable
-                if c.baseline is not None and c.baseline.outcome is Outcome.PASS
-            ),
-            len(self.comparable),
-        )
+        return _rate(_passing(self.comparable, before=True), len(self.comparable))
 
     @property
     def candidate_pass_rate(self) -> float | None:
-        return _rate(
-            sum(
-                1
-                for c in self.comparable
-                if c.candidate is not None and c.candidate.outcome is Outcome.PASS
-            ),
-            len(self.comparable),
-        )
+        """The share of cases that pass *reliably*.
+
+        A case that passes nine times in ten is not counted as passing here.
+        Counting it would reintroduce exactly the overclaim that repeating the
+        run was meant to remove.
+        """
+        return _rate(_passing(self.comparable, before=False), len(self.comparable))
+
+    @property
+    def flaky(self) -> list[CaseComparison]:
+        return [c for c in self.comparisons if c.flaky]
+
+    @property
+    def repeated(self) -> bool:
+        return max(self.baseline_run.repetitions, self.candidate_run.repetitions) > 1
 
     @property
     def statistics(self) -> PairedStatistics | None:
@@ -164,13 +219,21 @@ def compare_results(
     candidate_run: EvaluationRun,
     candidate_results: list[CaseResult],
 ) -> ComparisonReport:
-    """Align two runs by stable test ID and classify every pair."""
-    baseline_by_id = {result.test_id: result for result in baseline_results}
-    candidate_by_id = {result.test_id: result for result in candidate_results}
+    """Align two runs by stable test ID and classify every case."""
+    baseline_summaries = summarize(baseline_results)
+    candidate_summaries = summarize(candidate_results)
+    baseline_first = _first_by_case(baseline_results)
+    candidate_first = _first_by_case(candidate_results)
 
     comparisons = [
-        _classify(test_id, baseline_by_id.get(test_id), candidate_by_id.get(test_id))
-        for test_id in sorted(set(baseline_by_id) | set(candidate_by_id))
+        _classify(
+            test_id,
+            baseline_summaries.get(test_id),
+            candidate_summaries.get(test_id),
+            baseline_first.get(test_id),
+            candidate_first.get(test_id),
+        )
+        for test_id in sorted(set(baseline_summaries) | set(candidate_summaries))
     ]
     return ComparisonReport(
         baseline_run=baseline_run,
@@ -180,30 +243,95 @@ def compare_results(
     )
 
 
+def _first_by_case(results: list[CaseResult]) -> dict[str, CaseResult]:
+    """One representative execution per case, for showing a failure reason."""
+    first: dict[str, CaseResult] = {}
+    for result in results:
+        first.setdefault(result.test_id, result)
+        if result.outcome is Outcome.FAIL:
+            first[result.test_id] = result
+    return first
+
+
 def _classify(
-    test_id: str, baseline: CaseResult | None, candidate: CaseResult | None
+    test_id: str,
+    baseline: CaseSummary | None,
+    candidate: CaseSummary | None,
+    baseline_result: CaseResult | None,
+    candidate_result: CaseResult | None,
 ) -> CaseComparison:
+    """Extend the truth table from single outcomes to repeated ones.
+
+    With one repetition each side is either PASS or FAIL and this reduces
+    exactly to the original four rows. With more, a third verdict appears --
+    FLAKY -- and it is what stops a single lucky pass being reported as a fix.
+    """
     if baseline is None or candidate is None:
         classification = Classification.MISSING
-    elif not baseline.comparable or not candidate.comparable:
-        # An error on either side removes the pair from the analysis entirely.
+    elif baseline.verdict is Verdict.ERROR or candidate.verdict is Verdict.ERROR:
         classification = Classification.NOT_COMPARABLE
     else:
-        passed_before = baseline.outcome is Outcome.PASS
-        passed_after = candidate.outcome is Outcome.PASS
-        classification = {
-            (True, True): Classification.UNCHANGED_PASS,
-            (False, True): Classification.FIXED,
-            (True, False): Classification.REGRESSION,
-            (False, False): Classification.UNCHANGED_FAILURE,
-        }[(passed_before, passed_after)]
+        classification = _direction(baseline, candidate)
 
     return CaseComparison(
         test_id=test_id,
         classification=classification,
-        baseline=baseline,
-        candidate=candidate,
+        baseline=baseline_result,
+        candidate=candidate_result,
+        baseline_summary=baseline,
+        candidate_summary=candidate,
     )
+
+
+def _direction(baseline: CaseSummary, candidate: CaseSummary) -> Classification:
+    before, after = baseline.verdict, candidate.verdict
+
+    if after is Verdict.PASS:
+        # Reliably passing now. It is a fix unless it was already reliable.
+        return Classification.UNCHANGED_PASS if before is Verdict.PASS else Classification.FIXED
+
+    if after is Verdict.FAIL:
+        # Never passes now. A regression only if it used to pass at all.
+        return (
+            Classification.UNCHANGED_FAILURE
+            if before is Verdict.FAIL
+            else Classification.REGRESSION
+        )
+
+    # The candidate is flaky. Whether that is progress depends on what it was.
+    if before is Verdict.PASS:
+        # It used to always pass and now sometimes does not. That is worse,
+        # whatever the rate says.
+        return Classification.REGRESSION
+    if before is Verdict.FAIL:
+        return (
+            Classification.LIKELY_FIXED
+            if _passes_more_often_than_not(candidate)
+            else Classification.UNCHANGED_FAILURE
+        )
+
+    # Flaky before and flaky after: compare how often, not whether.
+    before_rate = baseline.pass_rate or 0.0
+    after_rate = candidate.pass_rate or 0.0
+    if after_rate > before_rate:
+        return (
+            Classification.LIKELY_FIXED
+            if _passes_more_often_than_not(candidate)
+            else Classification.UNCHANGED_FAILURE
+        )
+    if after_rate < before_rate:
+        return Classification.REGRESSION
+    return Classification.UNCHANGED_FAILURE
+
+
+def _passes_more_often_than_not(summary: CaseSummary) -> bool:
+    """True only when the sample supports the claim, not merely suggests it.
+
+    Two passes out of three looks like a majority and is not evidence of one;
+    the lower bound of the interval is what decides.
+    """
+    interval = summary.confidence
+    return interval is not None and interval[0] > 0.5
 
 
 def paired_statistics(comparable: list[CaseComparison]) -> PairedStatistics | None:
@@ -262,6 +390,25 @@ def paired_statistics(comparable: list[CaseComparison]) -> PairedStatistics | No
     )
     statistics.interval_method = "paired Wald, 95%"
     return statistics
+
+
+def _reliably_passing(summary: CaseSummary | None) -> bool:
+    return summary is not None and summary.verdict is Verdict.PASS
+
+
+def _passing(comparisons: list[CaseComparison], *, before: bool) -> int:
+    return sum(
+        1
+        for c in comparisons
+        if _reliably_passing(c.baseline_summary if before else c.candidate_summary)
+    )
+
+
+def _became(comparison: CaseComparison, *, passing: bool) -> bool:
+    """Whether this case crossed the pass/not-pass line in the given direction."""
+    was = _reliably_passing(comparison.baseline_summary)
+    now = _reliably_passing(comparison.candidate_summary)
+    return (now and not was) if passing else (was and not now)
 
 
 def _rate(passed: int, total: int) -> float | None:

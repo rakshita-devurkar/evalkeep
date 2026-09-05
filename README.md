@@ -110,6 +110,9 @@ letting you claim it.
 - **Score changes are not overclaimed.** Significance uses McNemar's exact test,
   and a confidence interval is withheld — with the reason printed — when too few
   tests changed outcome to support one.
+- **One lucky pass is not a fix.** `run --repetitions N` executes each test N
+  times and reports a per-case verdict with a confidence interval. A case that
+  only sometimes passes is reported as flaky and never counted as passing.
 
 ## Documentation
 
