@@ -46,11 +46,16 @@ A per-case binomial interval belongs here, and it is the natural place for the
 `MIN_DISCORDANT_FOR_INTERVAL` restraint to be relaxed, since repetitions supply
 the sample size that a small suite cannot.
 
-### Recorded fixtures are not replayed
+### Recorded fixtures are not replayed — *addressed*
 
-**Today.** `dataset build` records every tool result the original agent saw, in
+**Resolved.** Fixtures are published to every test as a `fixtures` variable, and
+the export warns when a target cannot receive them. What remains open is that a
+target must choose to read them; Evalkeep cannot intercept a black-box agent's
+tool calls. See [Fixture replay](pipeline.md#fixture-replay).
+
+**Was.** `dataset build` recorded every tool result the original agent saw, in
 `RegressionTest.fixtures`, with the arguments that produced it. The Promptfoo
-exporter never reads them.
+exporter never read them.
 
 **Why it matters.** The test re-runs the agent against whatever its tools return
 *now*. If the shop has different orders than it did when the trace was recorded,

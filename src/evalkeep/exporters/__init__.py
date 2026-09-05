@@ -6,7 +6,14 @@ from enum import StrEnum
 
 from evalkeep.errors import CommandError
 from evalkeep.exporters.generic import to_jsonl, to_record
-from evalkeep.exporters.promptfoo import assertion, build_config, provider_for, test_case
+from evalkeep.exporters.promptfoo import (
+    FIXTURES_VAR,
+    assertion,
+    build_config,
+    build_test_case,
+    provider_for,
+    replay_warnings,
+)
 
 
 class ExportFormat(StrEnum):
@@ -25,12 +32,14 @@ def parse_format(name: str) -> ExportFormat:
 
 
 __all__ = [
+    "FIXTURES_VAR",
     "ExportFormat",
     "assertion",
     "build_config",
+    "build_test_case",
     "parse_format",
     "provider_for",
-    "test_case",
+    "replay_warnings",
     "to_jsonl",
     "to_record",
 ]

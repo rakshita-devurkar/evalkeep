@@ -49,8 +49,37 @@ def build_config(
         # The prompt is the test input verbatim: Evalkeep tests an application,
         # not a prompt template.
         "prompts": ["{{input}}"],
-        "tests": [test_case(test) for test in tests],
+        "tests": [build_test_case(test) for test in tests],
     }
+
+
+def replay_warnings(tests: list[RegressionTest], target: Target) -> list[str]:
+    """Cases where fixtures were recorded but cannot reach the target.
+
+    Silence here would be the worst outcome: the run would look like a faithful
+    replay while actually re-querying live tools, and the comparison would be
+    answering a different question than the one it reports.
+    """
+    with_fixtures = [test for test in tests if test.fixtures]
+    if not with_fixtures:
+        return []
+
+    if target.kind is TargetKind.HTTP:
+        body = json.dumps(target.body)
+        if FIXTURES_VAR not in body:
+            return [
+                f"{len(with_fixtures)} test(s) carry recorded fixtures, but the "
+                f"body of target {target.target_id!r} never references "
+                f"{{{{{FIXTURES_VAR}}}}}, so the agent will call its real tools "
+                "instead of replaying what was recorded."
+            ]
+    elif target.kind is TargetKind.MODEL:
+        return [
+            f"{len(with_fixtures)} test(s) carry recorded fixtures, which a direct "
+            "model provider cannot receive. The model will be asked to choose "
+            "tools without the recorded results."
+        ]
+    return []
 
 
 def provider_for(
@@ -95,11 +124,25 @@ def provider_for(
             return {"id": target.provider}
 
 
-def test_case(test: RegressionTest) -> dict[str, Any]:
-    """One Promptfoo test case, described by its stable test ID."""
+#: The variable recorded tool results are published under. A target that wants
+#: reproducible replay reads this; one that ignores it behaves as before.
+FIXTURES_VAR = "fixtures"
+
+
+def build_test_case(test: RegressionTest) -> dict[str, Any]:
+    """One Promptfoo test case, described by its stable test ID.
+
+    Recorded fixtures are published as a test variable rather than injected.
+    Evalkeep cannot intercept a black-box agent's tool calls -- it can only put
+    the recorded results where the target can reach them, and say so. What the
+    target does with them is the target's decision, and an honest boundary.
+    """
+    variables: dict[str, Any] = {"input": _input_text(test)}
+    if test.fixtures:
+        variables[FIXTURES_VAR] = [fixture.for_replay() for fixture in test.fixtures]
     return {
         "description": test.test_id,
-        "vars": {"input": _input_text(test)},
+        "vars": variables,
         "assert": [assertion(expectation) for expectation in test.expectations],
         "metadata": {
             "test_id": test.test_id,

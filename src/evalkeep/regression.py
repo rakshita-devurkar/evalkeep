@@ -272,6 +272,19 @@ class Fixture:
             "call_id": self.call_id,
         }
 
+    def for_replay(self) -> dict[str, Any]:
+        """What a target needs to reproduce this call.
+
+        ``call_id`` is left out: it identifies the original recording, not the
+        interaction, and a replaying target has no use for it.
+        """
+        return {
+            "tool": self.tool,
+            "arguments": self.arguments,
+            "result": self.result,
+            "error": self.error,
+        }
+
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> Fixture:
         return cls(

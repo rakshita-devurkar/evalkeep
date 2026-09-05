@@ -1215,6 +1215,8 @@ def _render_export(result: ExportResult) -> None:
     summary.add_row("tests", str(result.tests))
     summary.add_row("written", str(result.path))
     console.print(summary)
+    for warning in result.warnings:
+        err_console.print(f"[yellow]warning:[/] {warning}")
     console.print("\n[dim]Approved tests only.[/]")
 
 
