@@ -35,6 +35,17 @@ uv run evalkeep ingest examples/refund-agent/traces.jsonl   # validate, redact, 
 uv run evalkeep detect                                      # find evidence-backed failures
 ```
 
+Already have traces somewhere? Point Evalkeep at an export — no API keys, no
+re-instrumentation:
+
+```bash
+uv run evalkeep ingest spans.json --format otlp        # OpenTelemetry / OpenInference
+uv run evalkeep ingest runs.jsonl --format langsmith   # LangSmith
+```
+
+OpenTelemetry covers the most ground: Langfuse, Braintrust and Phoenix all ingest
+OTLP, so an app instrumented for any of them works here unchanged.
+
 Describe each failure so similar ones can be grouped — by hand, or with a model
 if you configure one:
 
