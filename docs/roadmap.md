@@ -108,9 +108,16 @@ for selection rather than at ingest. Failures then carry an occurrence count, a
 first-seen and last-seen, and the set of agent versions affected — feeding both
 severity and the history command below.
 
-### "Nothing unredacted is ever stored" is too strong
+### "Nothing unredacted is ever stored" is too strong — *addressed*
 
-**Today.** Redaction deliberately exempts identifiers — `trace_id`, `event_id`,
+**Resolved.** `redaction.pseudonymize_identifiers` replaces trace, event and call
+IDs with tokens derived from a per-project salt. The original is never stored,
+links survive because the mapping is deterministic, and lookups still accept the
+IDs your own systems use. When it is off, ingest warns if an identifier looks
+like it carries personal data rather than staying silent. See
+[Identifiers](security.md#identifiers).
+
+**Was.** Redaction deliberately exempted identifiers — `trace_id`, `event_id`,
 `call_id`, `tool`, `name` — because rewriting them would break the links the
 whole pipeline runs on.
 

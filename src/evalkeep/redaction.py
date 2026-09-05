@@ -25,6 +25,7 @@ from enum import StrEnum
 from typing import Any
 
 from evalkeep.config import RedactionConfig
+from evalkeep.pseudonyms import PREFIXES, Pseudonymizer
 from evalkeep.trace import NormalizedTrace
 
 
@@ -34,6 +35,9 @@ class RedactionRule(StrEnum):
     PAYMENT_CARD = "payment_card"
     TOKEN = "token"
     SECRET_FIELD = "secret_field"
+    #: An identifier replaced by a per-project token rather than a placeholder,
+    #: so the links it carries survive.
+    PSEUDONYM = "pseudonym"
 
 
 def placeholder(rule: RedactionRule) -> str:
@@ -149,8 +153,18 @@ class RedactionSummary:
 class Redactor:
     """Applies the configured rules to a trace, in memory, before storage."""
 
-    def __init__(self, config: RedactionConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: RedactionConfig | None = None,
+        *,
+        pseudonymizer: Pseudonymizer | None = None,
+    ) -> None:
         self.config = config or RedactionConfig()
+        self._pseudonymizer = pseudonymizer
+
+    @property
+    def pseudonymizing(self) -> bool:
+        return self._pseudonymizer is not None
 
     def redact(self, trace: NormalizedTrace) -> tuple[NormalizedTrace, RedactionSummary]:
         """Return a redacted copy of ``trace`` and what was replaced."""
@@ -224,9 +238,20 @@ class Redactor:
             return [self._walk(item, summary, key=key) for item in value]
         if isinstance(value, str):
             if key is not None and key in NEVER_REDACTED:
-                return value
+                return self._identifier(key, value, summary)
             return self.redact_text(value, summary)
         return value
+
+    def _identifier(self, key: str, value: str, summary: RedactionSummary) -> str:
+        """Identifiers survive verbatim, or become a stable per-project token.
+
+        Never a placeholder: two traces collapsing to `[REDACTED:email]` would
+        collide, and the pipeline is built on these values being distinct.
+        """
+        if self._pseudonymizer is None or key not in PREFIXES or not value:
+            return value
+        summary.record(RedactionRule.PSEUDONYM)
+        return self._pseudonymizer.token(value, field=key)
 
     def _is_secret_value(self, key: str, value: Any) -> bool:
         """A credential is a string or a container, never a count or a flag."""
@@ -265,3 +290,44 @@ def _ordered_segments(key: str) -> Iterable[str]:
     for part in parts:
         for piece in re.findall(r"[A-Z]+(?![a-z])|[A-Z][a-z0-9]*|[a-z0-9]+", part):
             yield piece.lower()
+
+
+#: The patterns that make an identifier suspicious. Used to warn when
+#: pseudonymization is off and an ID looks like it carries customer data.
+_IDENTIFIER_RISKS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("an email address", EMAIL_PATTERN),
+    ("a phone number", PHONE_PATTERN),
+    ("a phone number", E164_PATTERN),
+)
+
+
+def risky_identifiers(trace: NormalizedTrace) -> list[str]:
+    """Identifiers in this trace that appear to contain personal data.
+
+    Reported rather than rewritten. Rewriting them without pseudonymization
+    would break the links; staying silent would let the documented guarantee
+    quietly overstate what happened.
+    """
+    found: list[str] = []
+    candidates: list[tuple[str, str]] = [("trace_id", trace.trace_id)]
+    for event in trace.events:
+        candidates.append(("event_id", event.event_id))
+        call_id = getattr(event, "call_id", None)
+        if isinstance(call_id, str):
+            candidates.append(("call_id", call_id))
+
+    for name, value in candidates:
+        # Identifiers are usually `prefix-value`, and the patterns treat a
+        # hyphen as part of a word so that order numbers are not mistaken for
+        # phone numbers. Scanning a separator-normalized copy as well catches
+        # `customer-(415) 555-2671`, which is exactly the shape that matters
+        # here and would otherwise slip through.
+        forms = {value, re.sub(r"[-_]+", " ", value)}
+        for description, pattern in _IDENTIFIER_RISKS:
+            if any(pattern.search(form) for form in forms):
+                found.append(f"{name} contains what looks like {description}")
+                break
+        else:
+            if any(token.search(form) for form in forms for token in TOKEN_PATTERNS):
+                found.append(f"{name} contains what looks like a credential")
+    return found

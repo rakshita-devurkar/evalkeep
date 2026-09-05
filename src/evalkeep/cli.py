@@ -1739,6 +1739,19 @@ def _render_ingest(report: IngestReport) -> None:
             f"{rule} x{count}" for rule, count in report.redaction_summary.to_dict().items()
         )
         console.print(f"[dim]{detail}[/]")
+    if report.identifier_risks:
+        err_console.print(
+            f"\n[yellow]warning:[/] {report.identifier_risks} trace(s) have "
+            "identifiers that look like they carry personal data, and identifiers "
+            "are stored as-is:"
+        )
+        for notice in report.notices:
+            err_console.print(f"  [dim]{notice}[/]")
+        err_console.print(
+            "  [dim]Set redaction.pseudonymize_identifiers in evalkeep.yaml to "
+            "replace them with per-project tokens.[/]"
+        )
+
     if report.error_path is not None and report.issue_count:
         console.print(f"\n[dim]{report.issue_count} issues written to {report.error_path}[/]")
 

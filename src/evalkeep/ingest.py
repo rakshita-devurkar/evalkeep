@@ -24,7 +24,7 @@ from typing import TextIO
 
 from evalkeep.adapters import AdapterRecord, IssueKind, TraceAdapter, TraceIssue
 from evalkeep.errors import CommandError, ExitCode
-from evalkeep.redaction import RedactionSummary, Redactor
+from evalkeep.redaction import RedactionSummary, Redactor, risky_identifiers
 from evalkeep.storage import StoreOutcome, StoreResult, TraceStore
 
 #: Issues kept for terminal display; the rest go to the error JSONL.
@@ -64,10 +64,15 @@ class IngestReport:
     # Redaction
     redactions: int = 0
     redacted_traces: int = 0
+    #: Traces whose identifiers look like they carry personal data, counted
+    #: only when pseudonymization is off and they were therefore stored as-is.
+    identifier_risks: int = 0
     redaction_summary: RedactionSummary = field(default_factory=RedactionSummary)
 
     error_path: Path | None = None
     sample: list[TraceIssue] = field(default_factory=list)
+    #: Things worth telling the user that are not record errors.
+    notices: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -165,6 +170,14 @@ def ingest_file(
 
             # Redaction sits here on purpose: between a trace being valid and it
             # touching the database, with no path around it.
+            if not redactor.pseudonymizing:
+                risks = risky_identifiers(record.trace)
+                if risks:
+                    report.identifier_risks += 1
+                    for risk in risks:
+                        if risk not in report.notices and len(report.notices) < 5:
+                            report.notices.append(risk)
+
             redacted, summary = redactor.redact(record.trace)
             report.redactions += summary.total
             report.redacted_traces += 1 if summary.total else 0

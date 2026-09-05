@@ -43,7 +43,7 @@ def ingest_traces(
             path,
             adapter,
             store=store,
-            redactor=Redactor(project.config.redaction),
+            redactor=Redactor(project.config.redaction, pseudonymizer=project.pseudonymizer()),
             dry_run=dry_run,
             error_path=resolved_errors,
             sample_limit=sample_limit,
