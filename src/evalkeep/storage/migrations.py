@@ -257,6 +257,36 @@ MIGRATIONS: tuple[Migration, ...] = (
             "CREATE INDEX baseline_promotions_time ON baseline_promotions(promoted_at)",
         ),
     ),
+    Migration(
+        version=9,
+        name="trace occurrences",
+        statements=(
+            # One row per *sighting* of an interaction, while `traces` keeps one
+            # row per distinct interaction. Deduplication is right for the test
+            # suite and wrong for the evidence: how often a failure happens, and
+            # which versions it affects, is what a severity judgement rests on.
+            #
+            # occurrence_id is derived from the sighting's own content, so
+            # re-ingesting a file records nothing new rather than inflating the
+            # counts.
+            """
+            CREATE TABLE trace_occurrences (
+                occurrence_id      TEXT PRIMARY KEY,
+                canonical_trace_id TEXT NOT NULL
+                                   REFERENCES traces(trace_id) ON DELETE CASCADE,
+                content_hash       TEXT NOT NULL,
+                trace_id           TEXT NOT NULL,
+                source             TEXT,
+                agent              TEXT,
+                model              TEXT,
+                recorded_at        TEXT,
+                ingested_at        TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX trace_occurrences_canonical ON trace_occurrences(canonical_trace_id)",
+            "CREATE INDEX trace_occurrences_hash ON trace_occurrences(content_hash)",
+        ),
+    ),
 )
 
 LATEST_VERSION = max(migration.version for migration in MIGRATIONS)

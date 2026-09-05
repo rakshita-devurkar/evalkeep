@@ -12,11 +12,12 @@ a conflict the caller must resolve (same ID, different content).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -59,6 +60,42 @@ class StoreOutcome:
 
 
 @dataclass(frozen=True)
+class TraceOccurrence:
+    """One sighting of an interaction.
+
+    Distinct from a trace: `traces` holds one row per interaction, and this
+    holds one row per time that interaction was seen. The same bug hitting two
+    hundred users is one trace and two hundred occurrences.
+    """
+
+    occurrence_id: str
+    canonical_trace_id: str
+    content_hash: str
+    #: The ID this sighting carried, which may differ from the canonical one.
+    trace_id: str
+    source: str | None = None
+    agent: str | None = None
+    model: str | None = None
+    recorded_at: str | None = None
+    ingested_at: str = ""
+
+
+@dataclass(frozen=True)
+class OccurrenceStats:
+    """How often an interaction was seen, and across what."""
+
+    count: int = 0
+    first_seen: str | None = None
+    last_seen: str | None = None
+    #: Distinct agent versions this interaction was observed on.
+    agents: tuple[str, ...] = ()
+
+    @property
+    def recurring(self) -> bool:
+        return self.count > 1
+
+
+@dataclass(frozen=True)
 class StoredTrace:
     """A trace as it came back out of the database."""
 
@@ -67,6 +104,7 @@ class StoredTrace:
     ingested_at: str
     redactions: int
     redaction_summary: dict[str, int]
+    occurrences: OccurrenceStats = field(default_factory=OccurrenceStats)
 
 
 @dataclass(frozen=True)
@@ -79,6 +117,7 @@ class TraceSummary:
     recorded_at: str | None
     events: int
     redactions: int
+    occurrences: int = 1
 
 
 class TraceStore:
@@ -172,6 +211,88 @@ class TraceStore:
             raise CommandError(f"Could not store trace {trace.trace_id!r}: {exc}") from exc
         return outcome
 
+    def record_occurrence(
+        self, trace: NormalizedTrace, *, canonical_trace_id: str, digest: str
+    ) -> bool:
+        """Note that this interaction was seen. Returns True if it was new.
+
+        The occurrence ID is derived from the sighting itself, so re-ingesting a
+        file is a no-op rather than a way to inflate a frequency count.
+        """
+        occurrence_id = occurrence_id_for(digest, trace)
+        with self._connection:
+            cursor = self._connection.execute(
+                """
+                INSERT OR IGNORE INTO trace_occurrences (
+                    occurrence_id, canonical_trace_id, content_hash, trace_id,
+                    source, agent, model, recorded_at, ingested_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    occurrence_id,
+                    canonical_trace_id,
+                    digest,
+                    trace.trace_id,
+                    trace.metadata.source,
+                    trace.metadata.agent,
+                    trace.metadata.model,
+                    _isoformat(trace.metadata.recorded_at),
+                    datetime.now(UTC).isoformat(),
+                ),
+            )
+            return cursor.rowcount > 0
+
+    def occurrences(self, trace_id: str) -> OccurrenceStats:
+        """How often this interaction was seen, and on which agent versions."""
+        row = self._connection.execute(
+            """
+            SELECT COUNT(*) AS n,
+                   MIN(COALESCE(recorded_at, ingested_at)) AS first_seen,
+                   MAX(COALESCE(recorded_at, ingested_at)) AS last_seen
+            FROM trace_occurrences WHERE canonical_trace_id = ?
+            """,
+            (trace_id.strip(),),
+        ).fetchone()
+        agents = [
+            r["agent"]
+            for r in self._connection.execute(
+                """
+                SELECT DISTINCT agent FROM trace_occurrences
+                WHERE canonical_trace_id = ? AND agent IS NOT NULL
+                ORDER BY agent
+                """,
+                (trace_id.strip(),),
+            )
+        ]
+        return OccurrenceStats(
+            count=int(row["n"]),
+            first_seen=row["first_seen"],
+            last_seen=row["last_seen"],
+            agents=tuple(agents),
+        )
+
+    def occurrence_list(self, trace_id: str) -> list[TraceOccurrence]:
+        return [
+            TraceOccurrence(
+                occurrence_id=row["occurrence_id"],
+                canonical_trace_id=row["canonical_trace_id"],
+                content_hash=row["content_hash"],
+                trace_id=row["trace_id"],
+                source=row["source"],
+                agent=row["agent"],
+                model=row["model"],
+                recorded_at=row["recorded_at"],
+                ingested_at=row["ingested_at"],
+            )
+            for row in self._connection.execute(
+                """
+                SELECT * FROM trace_occurrences WHERE canonical_trace_id = ?
+                ORDER BY COALESCE(recorded_at, ingested_at), occurrence_id
+                """,
+                (trace_id.strip(),),
+            )
+        ]
+
     def classify(self, trace: NormalizedTrace) -> StoreOutcome:
         """Decide what storing ``trace`` would do, without writing anything."""
         digest = content_hash(trace)
@@ -215,6 +336,7 @@ class TraceStore:
             ingested_at=row["ingested_at"],
             redactions=row["redactions"],
             redaction_summary=json.loads(row["redaction_summary"]),
+            occurrences=self.occurrences(row["trace_id"]),
         )
 
     def list(
@@ -222,7 +344,9 @@ class TraceStore:
     ) -> list[TraceSummary]:
         query = """
             SELECT t.trace_id, t.status, t.source, t.recorded_at, t.redactions,
-                   (SELECT COUNT(*) FROM events e WHERE e.trace_id = t.trace_id) AS events
+                   (SELECT COUNT(*) FROM events e WHERE e.trace_id = t.trace_id) AS events,
+                   (SELECT COUNT(*) FROM trace_occurrences o
+                    WHERE o.canonical_trace_id = t.trace_id) AS occurrences
             FROM traces t
         """
         parameters: list[Any] = []
@@ -240,6 +364,7 @@ class TraceStore:
                 recorded_at=row["recorded_at"],
                 events=row["events"],
                 redactions=row["redactions"],
+                occurrences=row["occurrences"],
             )
             for row in self._connection.execute(query, parameters)
         ]
@@ -263,6 +388,24 @@ class TraceStore:
 
     def event_count(self) -> int:
         return int(self._connection.execute("SELECT COUNT(*) AS n FROM events").fetchone()["n"])
+
+
+def occurrence_id_for(digest: str, trace: NormalizedTrace) -> str:
+    """Identify a sighting by what distinguishes it from other sightings.
+
+    Two records of the same interaction, carrying the same ID and the same
+    recorded time, are the same sighting seen twice -- most often because a file
+    was ingested again -- and must not count twice.
+    """
+    material = "\n".join(
+        [
+            digest,
+            trace.trace_id,
+            _isoformat(trace.metadata.recorded_at) or "",
+            trace.metadata.source or "",
+        ]
+    )
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:24]
 
 
 def _event_rows(trace: NormalizedTrace, payload: dict[str, Any]) -> Iterator[tuple[Any, ...]]:

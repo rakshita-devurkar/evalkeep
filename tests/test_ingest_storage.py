@@ -15,6 +15,7 @@ from evalkeep.commands.trace_cmd import list_traces, show_trace
 from evalkeep.config import Project
 from evalkeep.errors import CommandError, ExitCode
 from evalkeep.ingest import IngestMode
+from evalkeep.storage import TraceStore
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples/refund-agent/traces.jsonl"
 
@@ -287,3 +288,131 @@ class TestCli:
     def test_an_unknown_trace_exits_two(self, runner: CliRunner, initialized_project: Path) -> None:
         result = runner.invoke(app, ["trace", "show", "nope", "-C", str(initialized_project)])
         assert result.exit_code == ExitCode.COMMAND_ERROR
+
+
+class TestOccurrences:
+    """Deduplication is right for the suite and wrong for the evidence."""
+
+    def _seen(self, path: Path, *rows: tuple[str, str, str]) -> None:
+        payloads = [
+            trace_payload(
+                trace_id,
+                events=[
+                    {
+                        "event_id": "e1",
+                        "type": "tool_call",
+                        "tool": "refund_order",
+                        "arguments": {"order_id": "order-A"},
+                    }
+                ],
+                metadata={"agent": agent, "recorded_at": recorded},
+            )
+            for trace_id, agent, recorded in rows
+        ]
+        write_traces(path, *payloads)
+
+    def test_the_same_interaction_is_stored_once_but_counted_each_time(
+        self, initialized_project: Path, traces_file: Path
+    ) -> None:
+        self._seen(
+            traces_file,
+            ("trace-1", "shop-v1", "2026-08-01T00:00:00Z"),
+            ("trace-2", "shop-v1", "2026-08-05T00:00:00Z"),
+            ("trace-3", "shop-v2", "2026-08-09T00:00:00Z"),
+        )
+        report = ingest_traces(traces_file, project_root=initialized_project)
+
+        assert report.stored == 1
+        assert report.content_duplicates == 2
+        assert report.occurrences == 3
+        assert list_traces(project_root=initialized_project).total == 1
+
+    def test_frequency_and_affected_versions_survive(
+        self, initialized_project: Path, traces_file: Path
+    ) -> None:
+        self._seen(
+            traces_file,
+            ("trace-1", "shop-v1", "2026-08-01T00:00:00Z"),
+            ("trace-2", "shop-v1", "2026-08-05T00:00:00Z"),
+            ("trace-3", "shop-v2", "2026-08-09T00:00:00Z"),
+        )
+        ingest_traces(traces_file, project_root=initialized_project)
+        stored = show_trace("trace-1", project_root=initialized_project)
+
+        assert stored.occurrences.count == 3
+        assert stored.occurrences.recurring
+        assert stored.occurrences.agents == ("shop-v1", "shop-v2")
+        assert stored.occurrences.first_seen is not None
+        assert stored.occurrences.first_seen.startswith("2026-08-01")
+        assert stored.occurrences.last_seen is not None
+        assert stored.occurrences.last_seen.startswith("2026-08-09")
+
+    def test_re_ingesting_does_not_inflate_the_count(
+        self, initialized_project: Path, traces_file: Path
+    ) -> None:
+        """A frequency you can inflate by re-running a command is not a frequency."""
+        self._seen(
+            traces_file,
+            ("trace-1", "shop-v1", "2026-08-01T00:00:00Z"),
+            ("trace-2", "shop-v1", "2026-08-05T00:00:00Z"),
+        )
+        ingest_traces(traces_file, project_root=initialized_project)
+        second = ingest_traces(traces_file, project_root=initialized_project)
+
+        assert second.occurrences == 0
+        assert show_trace("trace-1", project_root=initialized_project).occurrences.count == 2
+
+    def test_a_single_sighting_is_not_recurring(
+        self, initialized_project: Path, traces_file: Path
+    ) -> None:
+        self._seen(traces_file, ("trace-1", "shop-v1", "2026-08-01T00:00:00Z"))
+        ingest_traces(traces_file, project_root=initialized_project)
+        stored = show_trace("trace-1", project_root=initialized_project)
+        assert stored.occurrences.count == 1
+        assert not stored.occurrences.recurring
+
+    def test_every_sighting_keeps_the_id_it_arrived_with(
+        self, initialized_project: Path, traces_file: Path
+    ) -> None:
+        self._seen(
+            traces_file,
+            ("trace-1", "shop-v1", "2026-08-01T00:00:00Z"),
+            ("trace-2", "shop-v1", "2026-08-05T00:00:00Z"),
+        )
+        ingest_traces(traces_file, project_root=initialized_project)
+        with TraceStore.open(Project.load(initialized_project).database_path) as store:
+            listed = store.occurrence_list("trace-1")
+        assert {o.trace_id for o in listed} == {"trace-1", "trace-2"}
+        assert {o.canonical_trace_id for o in listed} == {"trace-1"}
+
+    def test_occurrences_die_with_their_trace(
+        self, initialized_project: Path, traces_file: Path
+    ) -> None:
+        self._seen(traces_file, ("trace-1", "shop-v1", "2026-08-01T00:00:00Z"))
+        ingest_traces(traces_file, project_root=initialized_project)
+        with TraceStore.open(Project.load(initialized_project).database_path) as store:
+            store._connection.execute("DELETE FROM traces")
+            store._connection.commit()
+            assert (
+                store._connection.execute("SELECT COUNT(*) FROM trace_occurrences").fetchone()[0]
+                == 0
+            )
+
+    def test_a_dry_run_records_nothing(self, initialized_project: Path, traces_file: Path) -> None:
+        self._seen(traces_file, ("trace-1", "shop-v1", "2026-08-01T00:00:00Z"))
+        report = ingest_traces(traces_file, project_root=initialized_project, dry_run=True)
+        assert report.occurrences == 0
+
+    def test_the_listing_shows_the_count(
+        self, runner: CliRunner, initialized_project: Path, traces_file: Path
+    ) -> None:
+        self._seen(
+            traces_file,
+            ("trace-1", "shop-v1", "2026-08-01T00:00:00Z"),
+            ("trace-2", "shop-v1", "2026-08-05T00:00:00Z"),
+        )
+        runner.invoke(app, ["ingest", str(traces_file), "-C", str(initialized_project)])
+        listed = runner.invoke(app, ["trace", "list", "-C", str(initialized_project)])
+        shown = runner.invoke(app, ["trace", "show", "trace-1", "-C", str(initialized_project)])
+        assert "seen" in listed.stdout
+        assert "2 times" in shown.stdout

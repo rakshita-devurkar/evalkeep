@@ -8,9 +8,11 @@ from evalkeep.storage.migrations import LATEST_VERSION, MIGRATIONS, Migration, a
 from evalkeep.storage.regression import RegressionStore
 from evalkeep.storage.runs import RunStore
 from evalkeep.storage.store import (
+    OccurrenceStats,
     StoredTrace,
     StoreOutcome,
     StoreResult,
+    TraceOccurrence,
     TraceStore,
     TraceSummary,
 )
@@ -22,11 +24,13 @@ __all__ = [
     "FailureStore",
     "FailureSummary",
     "Migration",
+    "OccurrenceStats",
     "RegressionStore",
     "RunStore",
     "StoreOutcome",
     "StoreResult",
     "StoredTrace",
+    "TraceOccurrence",
     "TraceStore",
     "TraceSummary",
     "apply_migrations",
