@@ -171,10 +171,18 @@ The data is already stored — `evaluation_runs`, `test_results`, and
 It becomes considerably more useful once repetitions exist, since each point
 gains a confidence rather than being a single coin flip.
 
-### OpenTelemetry / OpenInference adapter
+### OpenTelemetry / OpenInference adapter — *addressed*
 
-**Today.** Only the generic JSONL adapter exists. Everyone must transform their
-traces into Evalkeep's format before they can try it.
+**Resolved.** `--format otlp` reads OTLP JSON with OpenInference conventions and
+a `gen_ai.*` fallback, and `--format langsmith` reads exported LangSmith runs.
+Both read files rather than calling an API. What remains open is adapters for
+platforms that speak neither — and the honest limit that OpenTelemetry cannot
+carry user feedback, so failures whose only evidence is a person's judgement are
+not detectable from spans alone. See
+[Where traces come from](pipeline.md#where-traces-come-from).
+
+**Was.** Only the generic JSONL adapter existed. Everyone had to transform their
+traces into Evalkeep's format before they could try it.
 
 **Why it matters.** This is the single largest adoption barrier. OpenTelemetry
 with OpenInference semantic conventions is where agent tracing is converging, and

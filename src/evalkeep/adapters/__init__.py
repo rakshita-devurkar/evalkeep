@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from evalkeep.adapters.base import AdapterRecord, IssueKind, TraceAdapter, TraceIssue
 from evalkeep.adapters.jsonl import JsonlAdapter
+from evalkeep.adapters.langsmith import LangSmithAdapter
+from evalkeep.adapters.otlp import OtlpAdapter
 from evalkeep.errors import CommandError
 
 DEFAULT_ADAPTER = "jsonl"
 
-_ADAPTERS: dict[str, TraceAdapter] = {JsonlAdapter.name: JsonlAdapter()}
+_ADAPTERS: dict[str, TraceAdapter] = {
+    JsonlAdapter.name: JsonlAdapter(),
+    LangSmithAdapter.name: LangSmithAdapter(),
+    OtlpAdapter.name: OtlpAdapter(),
+}
 
 
 def available_adapters() -> dict[str, TraceAdapter]:
@@ -30,6 +36,8 @@ __all__ = [
     "AdapterRecord",
     "IssueKind",
     "JsonlAdapter",
+    "LangSmithAdapter",
+    "OtlpAdapter",
     "TraceAdapter",
     "TraceIssue",
     "available_adapters",

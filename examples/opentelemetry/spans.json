@@ -1,0 +1,898 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "shopping-agent"
+            }
+          }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "openinference.instrumentation"
+          },
+          "spans": [
+            {
+              "traceId": "00000000000000000000000000000412",
+              "spanId": "0000000000000000",
+              "name": "RefundAgent",
+              "startTimeUnixNano": "1755000000000000000",
+              "endTimeUnixNano": "1755000005000000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "AGENT"
+                  }
+                },
+                {
+                  "key": "input.value",
+                  "value": {
+                    "stringValue": "Refund my latest order."
+                  }
+                },
+                {
+                  "key": "output.value",
+                  "value": {
+                    "stringValue": "I've refunded order order-A for $24.00."
+                  }
+                }
+              ],
+              "status": {
+                "code": 2,
+                "message": "refunded the oldest order, not the newest"
+              }
+            },
+            {
+              "traceId": "00000000000000000000000000000412",
+              "spanId": "0000000000000001",
+              "parentSpanId": "0000000000000000",
+              "name": "ChatCompletion",
+              "startTimeUnixNano": "1755000001000000000",
+              "endTimeUnixNano": "1755000002000000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "LLM"
+                  }
+                },
+                {
+                  "key": "llm.model_name",
+                  "value": {
+                    "stringValue": "demo-model-v3"
+                  }
+                },
+                {
+                  "key": "llm.input_messages.0.message.role",
+                  "value": {
+                    "stringValue": "user"
+                  }
+                },
+                {
+                  "key": "llm.input_messages.0.message.content",
+                  "value": {
+                    "stringValue": "Refund my latest order."
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.role",
+                  "value": {
+                    "stringValue": "assistant"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.content",
+                  "value": {
+                    "stringValue": "I've refunded order order-A for $24.00."
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.tool_calls.0.tool_call.function.name",
+                  "value": {
+                    "stringValue": "list_orders"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.tool_calls.0.tool_call.function.arguments",
+                  "value": {
+                    "stringValue": "{\"customer_id\": \"cust-77\"}"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.tool_calls.1.tool_call.function.name",
+                  "value": {
+                    "stringValue": "refund_order"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.tool_calls.1.tool_call.function.arguments",
+                  "value": {
+                    "stringValue": "{\"order_id\": \"order-A\"}"
+                  }
+                }
+              ],
+              "status": {
+                "code": 1
+              }
+            },
+            {
+              "traceId": "00000000000000000000000000000412",
+              "spanId": "0000000000000002",
+              "parentSpanId": "0000000000000000",
+              "name": "list_orders",
+              "startTimeUnixNano": "1755000003000000000",
+              "endTimeUnixNano": "1755000003500000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "TOOL"
+                  }
+                },
+                {
+                  "key": "tool.name",
+                  "value": {
+                    "stringValue": "list_orders"
+                  }
+                },
+                {
+                  "key": "tool.parameters",
+                  "value": {
+                    "stringValue": "{\"customer_id\": \"cust-77\"}"
+                  }
+                },
+                {
+                  "key": "output.value",
+                  "value": {
+                    "stringValue": "[{\"order_id\": \"order-A\", \"placed_at\": \"2026-06-01\", \"total\": \"24.00\"}, {\"order_id\": \"order-B\", \"placed_at\": \"2026-07-15\", \"total\": \"61.50\"}, {\"order_id\": \"order-C\", \"placed_at\": \"2026-08-12\", \"total\": \"18.99\"}]"
+                  }
+                }
+              ],
+              "status": {
+                "code": 1
+              }
+            },
+            {
+              "traceId": "00000000000000000000000000000412",
+              "spanId": "0000000000000003",
+              "parentSpanId": "0000000000000000",
+              "name": "refund_order",
+              "startTimeUnixNano": "1755000004000000000",
+              "endTimeUnixNano": "1755000004500000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "TOOL"
+                  }
+                },
+                {
+                  "key": "tool.name",
+                  "value": {
+                    "stringValue": "refund_order"
+                  }
+                },
+                {
+                  "key": "tool.parameters",
+                  "value": {
+                    "stringValue": "{\"order_id\": \"order-A\"}"
+                  }
+                },
+                {
+                  "key": "output.value",
+                  "value": {
+                    "stringValue": "{\"status\": \"refunded\", \"order_id\": \"order-A\"}"
+                  }
+                }
+              ],
+              "status": {
+                "code": 1
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "shopping-agent"
+            }
+          }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "openinference.instrumentation"
+          },
+          "spans": [
+            {
+              "traceId": "00000000000000000000000000000413",
+              "spanId": "0000000000000010",
+              "name": "RefundAgent",
+              "startTimeUnixNano": "1755000060000000000",
+              "endTimeUnixNano": "1755000065000000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "AGENT"
+                  }
+                },
+                {
+                  "key": "input.value",
+                  "value": {
+                    "stringValue": "Please refund the order I placed most recently."
+                  }
+                },
+                {
+                  "key": "output.value",
+                  "value": {
+                    "stringValue": "Done - order-D has been refunded."
+                  }
+                }
+              ],
+              "status": {
+                "code": 2,
+                "message": "expected order-C, refunded order-D"
+              }
+            },
+            {
+              "traceId": "00000000000000000000000000000413",
+              "spanId": "0000000000000011",
+              "parentSpanId": "0000000000000010",
+              "name": "ChatCompletion",
+              "startTimeUnixNano": "1755000061000000000",
+              "endTimeUnixNano": "1755000062000000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "LLM"
+                  }
+                },
+                {
+                  "key": "llm.model_name",
+                  "value": {
+                    "stringValue": "demo-model-v3"
+                  }
+                },
+                {
+                  "key": "llm.input_messages.0.message.role",
+                  "value": {
+                    "stringValue": "user"
+                  }
+                },
+                {
+                  "key": "llm.input_messages.0.message.content",
+                  "value": {
+                    "stringValue": "Please refund the order I placed most recently."
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.role",
+                  "value": {
+                    "stringValue": "assistant"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.content",
+                  "value": {
+                    "stringValue": "Done - order-D has been refunded."
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.tool_calls.0.tool_call.function.name",
+                  "value": {
+                    "stringValue": "list_orders"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.tool_calls.0.tool_call.function.arguments",
+                  "value": {
+                    "stringValue": "{\"customer_id\": \"cust-91\"}"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.tool_calls.1.tool_call.function.name",
+                  "value": {
+                    "stringValue": "refund_order"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.tool_calls.1.tool_call.function.arguments",
+                  "value": {
+                    "stringValue": "{\"order_id\": \"order-D\"}"
+                  }
+                }
+              ],
+              "status": {
+                "code": 1
+              }
+            },
+            {
+              "traceId": "00000000000000000000000000000413",
+              "spanId": "0000000000000012",
+              "parentSpanId": "0000000000000010",
+              "name": "list_orders",
+              "startTimeUnixNano": "1755000063000000000",
+              "endTimeUnixNano": "1755000063500000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "TOOL"
+                  }
+                },
+                {
+                  "key": "tool.name",
+                  "value": {
+                    "stringValue": "list_orders"
+                  }
+                },
+                {
+                  "key": "tool.parameters",
+                  "value": {
+                    "stringValue": "{\"customer_id\": \"cust-91\"}"
+                  }
+                },
+                {
+                  "key": "output.value",
+                  "value": {
+                    "stringValue": "[{\"order_id\": \"order-A\", \"placed_at\": \"2026-06-01\", \"total\": \"24.00\"}, {\"order_id\": \"order-B\", \"placed_at\": \"2026-07-15\", \"total\": \"61.50\"}, {\"order_id\": \"order-C\", \"placed_at\": \"2026-08-12\", \"total\": \"18.99\"}]"
+                  }
+                }
+              ],
+              "status": {
+                "code": 1
+              }
+            },
+            {
+              "traceId": "00000000000000000000000000000413",
+              "spanId": "0000000000000013",
+              "parentSpanId": "0000000000000010",
+              "name": "refund_order",
+              "startTimeUnixNano": "1755000064000000000",
+              "endTimeUnixNano": "1755000064500000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "TOOL"
+                  }
+                },
+                {
+                  "key": "tool.name",
+                  "value": {
+                    "stringValue": "refund_order"
+                  }
+                },
+                {
+                  "key": "tool.parameters",
+                  "value": {
+                    "stringValue": "{\"order_id\": \"order-D\"}"
+                  }
+                },
+                {
+                  "key": "output.value",
+                  "value": {
+                    "stringValue": "{\"status\": \"refunded\"}"
+                  }
+                }
+              ],
+              "status": {
+                "code": 1
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "shopping-agent"
+            }
+          }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "openinference.instrumentation"
+          },
+          "spans": [
+            {
+              "traceId": "0000000000000000000000000000041b",
+              "spanId": "0000000000000020",
+              "name": "RefundAgent",
+              "startTimeUnixNano": "1755000120000000000",
+              "endTimeUnixNano": "1755000125000000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "AGENT"
+                  }
+                },
+                {
+                  "key": "input.value",
+                  "value": {
+                    "stringValue": "Cancel and refund order-B."
+                  }
+                },
+                {
+                  "key": "output.value",
+                  "value": {
+                    "stringValue": "I have refunded every order on your account."
+                  }
+                }
+              ],
+              "status": {
+                "code": 1
+              }
+            },
+            {
+              "traceId": "0000000000000000000000000000041b",
+              "spanId": "0000000000000021",
+              "parentSpanId": "0000000000000020",
+              "name": "ChatCompletion",
+              "startTimeUnixNano": "1755000121000000000",
+              "endTimeUnixNano": "1755000122000000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "LLM"
+                  }
+                },
+                {
+                  "key": "llm.model_name",
+                  "value": {
+                    "stringValue": "demo-model-v3"
+                  }
+                },
+                {
+                  "key": "llm.input_messages.0.message.role",
+                  "value": {
+                    "stringValue": "user"
+                  }
+                },
+                {
+                  "key": "llm.input_messages.0.message.content",
+                  "value": {
+                    "stringValue": "Cancel and refund order-B."
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.role",
+                  "value": {
+                    "stringValue": "assistant"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.content",
+                  "value": {
+                    "stringValue": "I have refunded every order on your account."
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.tool_calls.0.tool_call.function.name",
+                  "value": {
+                    "stringValue": "refund_order"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.tool_calls.0.tool_call.function.arguments",
+                  "value": {
+                    "stringValue": "{\"order_id\": \"order-A\"}"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.tool_calls.1.tool_call.function.name",
+                  "value": {
+                    "stringValue": "refund_order"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.tool_calls.1.tool_call.function.arguments",
+                  "value": {
+                    "stringValue": "{\"order_id\": \"order-B\"}"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.tool_calls.2.tool_call.function.name",
+                  "value": {
+                    "stringValue": "refund_order"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.tool_calls.2.tool_call.function.arguments",
+                  "value": {
+                    "stringValue": "{\"order_id\": \"order-C\"}"
+                  }
+                }
+              ],
+              "status": {
+                "code": 1
+              }
+            },
+            {
+              "traceId": "0000000000000000000000000000041b",
+              "spanId": "0000000000000022",
+              "parentSpanId": "0000000000000020",
+              "name": "refund_order",
+              "startTimeUnixNano": "1755000123000000000",
+              "endTimeUnixNano": "1755000123500000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "TOOL"
+                  }
+                },
+                {
+                  "key": "tool.name",
+                  "value": {
+                    "stringValue": "refund_order"
+                  }
+                },
+                {
+                  "key": "tool.parameters",
+                  "value": {
+                    "stringValue": "{\"order_id\": \"order-A\"}"
+                  }
+                },
+                {
+                  "key": "output.value",
+                  "value": {
+                    "stringValue": "{\"status\": \"refunded\"}"
+                  }
+                }
+              ],
+              "status": {
+                "code": 1
+              }
+            },
+            {
+              "traceId": "0000000000000000000000000000041b",
+              "spanId": "0000000000000023",
+              "parentSpanId": "0000000000000020",
+              "name": "refund_order",
+              "startTimeUnixNano": "1755000124000000000",
+              "endTimeUnixNano": "1755000124500000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "TOOL"
+                  }
+                },
+                {
+                  "key": "tool.name",
+                  "value": {
+                    "stringValue": "refund_order"
+                  }
+                },
+                {
+                  "key": "tool.parameters",
+                  "value": {
+                    "stringValue": "{\"order_id\": \"order-B\"}"
+                  }
+                },
+                {
+                  "key": "output.value",
+                  "value": {
+                    "stringValue": "{\"status\": \"refunded\"}"
+                  }
+                }
+              ],
+              "status": {
+                "code": 1
+              }
+            },
+            {
+              "traceId": "0000000000000000000000000000041b",
+              "spanId": "0000000000000024",
+              "parentSpanId": "0000000000000020",
+              "name": "refund_order",
+              "startTimeUnixNano": "1755000125000000000",
+              "endTimeUnixNano": "1755000125500000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "TOOL"
+                  }
+                },
+                {
+                  "key": "tool.name",
+                  "value": {
+                    "stringValue": "refund_order"
+                  }
+                },
+                {
+                  "key": "tool.parameters",
+                  "value": {
+                    "stringValue": "{\"order_id\": \"order-C\"}"
+                  }
+                },
+                {
+                  "key": "output.value",
+                  "value": {
+                    "stringValue": "{\"status\": \"refunded\"}"
+                  }
+                }
+              ],
+              "status": {
+                "code": 1
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "shopping-agent"
+            }
+          }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "openinference.instrumentation"
+          },
+          "spans": [
+            {
+              "traceId": "00000000000000000000000000000424",
+              "spanId": "0000000000000030",
+              "name": "RefundAgent",
+              "startTimeUnixNano": "1755000180000000000",
+              "endTimeUnixNano": "1755000185000000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "AGENT"
+                  }
+                },
+                {
+                  "key": "input.value",
+                  "value": {
+                    "stringValue": "What is the status of order-C?"
+                  }
+                },
+                {
+                  "key": "output.value",
+                  "value": {
+                    "stringValue": "order-C shipped on 2026-08-13 and arrives Friday."
+                  }
+                }
+              ],
+              "status": {
+                "code": 1
+              }
+            },
+            {
+              "traceId": "00000000000000000000000000000424",
+              "spanId": "0000000000000031",
+              "parentSpanId": "0000000000000030",
+              "name": "ChatCompletion",
+              "startTimeUnixNano": "1755000181000000000",
+              "endTimeUnixNano": "1755000182000000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "LLM"
+                  }
+                },
+                {
+                  "key": "llm.model_name",
+                  "value": {
+                    "stringValue": "demo-model-v3"
+                  }
+                },
+                {
+                  "key": "llm.input_messages.0.message.role",
+                  "value": {
+                    "stringValue": "user"
+                  }
+                },
+                {
+                  "key": "llm.input_messages.0.message.content",
+                  "value": {
+                    "stringValue": "What is the status of order-C?"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.role",
+                  "value": {
+                    "stringValue": "assistant"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.content",
+                  "value": {
+                    "stringValue": "order-C shipped on 2026-08-13 and arrives Friday."
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.tool_calls.0.tool_call.function.name",
+                  "value": {
+                    "stringValue": "get_order"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.tool_calls.0.tool_call.function.arguments",
+                  "value": {
+                    "stringValue": "{\"order_id\": \"order-C\"}"
+                  }
+                }
+              ],
+              "status": {
+                "code": 1
+              }
+            },
+            {
+              "traceId": "00000000000000000000000000000424",
+              "spanId": "0000000000000032",
+              "parentSpanId": "0000000000000030",
+              "name": "get_order",
+              "startTimeUnixNano": "1755000183000000000",
+              "endTimeUnixNano": "1755000183500000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "TOOL"
+                  }
+                },
+                {
+                  "key": "tool.name",
+                  "value": {
+                    "stringValue": "get_order"
+                  }
+                },
+                {
+                  "key": "tool.parameters",
+                  "value": {
+                    "stringValue": "{\"order_id\": \"order-C\"}"
+                  }
+                },
+                {
+                  "key": "output.value",
+                  "value": {
+                    "stringValue": "{\"order_id\": \"order-C\", \"status\": \"shipped\"}"
+                  }
+                }
+              ],
+              "status": {
+                "code": 1
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "shopping-agent"
+            }
+          }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "openinference.instrumentation"
+          },
+          "spans": [
+            {
+              "traceId": "00000000000000000000000000000425",
+              "spanId": "0000000000000040",
+              "name": "RefundAgent",
+              "startTimeUnixNano": "1755000240000000000",
+              "endTimeUnixNano": "1755000245000000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "AGENT"
+                  }
+                },
+                {
+                  "key": "input.value",
+                  "value": {
+                    "stringValue": "Do you ship to Portugal?"
+                  }
+                },
+                {
+                  "key": "output.value",
+                  "value": {
+                    "stringValue": "Yes, we ship to Portugal."
+                  }
+                }
+              ],
+              "status": {
+                "code": 1
+              }
+            },
+            {
+              "traceId": "00000000000000000000000000000425",
+              "spanId": "0000000000000041",
+              "parentSpanId": "0000000000000040",
+              "name": "ChatCompletion",
+              "startTimeUnixNano": "1755000241000000000",
+              "endTimeUnixNano": "1755000242000000000",
+              "attributes": [
+                {
+                  "key": "openinference.span.kind",
+                  "value": {
+                    "stringValue": "LLM"
+                  }
+                },
+                {
+                  "key": "llm.model_name",
+                  "value": {
+                    "stringValue": "demo-model-v3"
+                  }
+                },
+                {
+                  "key": "llm.input_messages.0.message.role",
+                  "value": {
+                    "stringValue": "user"
+                  }
+                },
+                {
+                  "key": "llm.input_messages.0.message.content",
+                  "value": {
+                    "stringValue": "Do you ship to Portugal?"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.role",
+                  "value": {
+                    "stringValue": "assistant"
+                  }
+                },
+                {
+                  "key": "llm.output_messages.0.message.content",
+                  "value": {
+                    "stringValue": "Yes, we ship to Portugal."
+                  }
+                }
+              ],
+              "status": {
+                "code": 1
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

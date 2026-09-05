@@ -81,6 +81,56 @@ it arrived with, when it was recorded and where it came from — so re-ingesting
 file records nothing new. A frequency you can inflate by re-running a command is
 not a frequency.
 
+### Where traces come from
+
+Evalkeep reads three formats. Every adapter reads a **file** and never calls an
+API, which keeps credentials out of the tool and works regardless of what tier
+your vendor puts bulk export behind.
+
+| `--format` | Source |
+| --- | --- |
+| `jsonl` (default) | Evalkeep's own format, one trace per line |
+| `otlp` | OpenTelemetry spans as OTLP JSON |
+| `langsmith` | LangSmith runs, as JSONL or a JSON array |
+
+**OpenTelemetry is the one that covers the most ground**, because it is the hub
+rather than another vendor: Langfuse, Braintrust and Phoenix all ingest OTLP, so
+an application instrumented for any of them can be pointed here unchanged.
+
+Two semantic conventions exist for GenAI spans and neither has won.
+**OpenInference is what this adapter targets** — it models tool calls and their
+arguments directly, and Evalkeep's expectations are written against those.
+`gen_ai.*` is read as a fallback where the mapping is unambiguous. When a span
+carries both, OpenInference wins: it is the more specific, and guessing between
+them would be worse than preferring the one that can express a tool call.
+
+Both grouped formats assemble **one Evalkeep trace per source trace**, since
+Evalkeep's unit is the interaction. That is the one place they differ from the
+JSONL adapter, which streams a trace per line: spans of a trace can appear
+anywhere in an export, so they are held until the file ends. Split very large
+exports by time range.
+
+#### The same call, recorded twice
+
+Both OTel and LangSmith usually record a tool call twice — once as the model
+declaring the intent, once as the span or run that executed it. Emitting both
+would double every tool call and quietly break any `max_tool_calls` expectation,
+so a declared call that an execution accounts for is dropped, **one for one**. A
+declared call with no execution is kept: a tool the agent asked for and never ran
+is a real observation, and often the interesting one.
+
+#### What a format cannot tell you
+
+Run the three bundled examples and detection finds three failures in the JSONL
+and LangSmith exports, and **two** in the OpenTelemetry one. That is the right
+answer.
+
+The missing interaction refunds every order when the user asked for one. Every
+call returned OK, so nothing errored — its only evidence is a person saying it
+was wrong, and OpenTelemetry has nowhere to record that. The adapter reports
+finding nothing rather than inventing a signal, and a test asserts the difference
+so nobody later "fixes" it into a guess.
+
 ## Failure detection
 
 `evalkeep detect` runs every detector over every stored trace and records what
