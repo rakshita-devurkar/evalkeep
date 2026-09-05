@@ -244,6 +244,7 @@ def trace_list(
     table.add_column("trace_id", style="cyan")
     table.add_column("status")
     table.add_column("events", justify="right")
+    table.add_column("seen", justify="right")
     table.add_column("redactions", justify="right")
     table.add_column("source", style="dim")
     table.add_column("recorded", style="dim")
@@ -252,6 +253,9 @@ def trace_list(
             summary.trace_id,
             _status_markup(summary.status),
             str(summary.events),
+            f"[yellow]{summary.occurrences}[/]"
+            if summary.occurrences > 1
+            else str(summary.occurrences),
             str(summary.redactions),
             summary.source or "",
             summary.recorded_at or "",
@@ -285,6 +289,15 @@ def _render_trace(stored: StoredTrace) -> None:
     header.add_row("status", _status_markup(trace.outcome.status.value))
     header.add_row("content", stored.content_hash)
     header.add_row("ingested", stored.ingested_at)
+    seen = stored.occurrences
+    if seen.count:
+        detail = f"{seen.count} time{'s' if seen.recurring else ''}"
+        if seen.recurring and seen.first_seen and seen.last_seen:
+            detail += f" ({seen.first_seen[:10]} to {seen.last_seen[:10]})"
+        if seen.agents:
+            detail += f", on {', '.join(seen.agents)}"
+        style = "yellow" if seen.recurring else "dim"
+        header.add_row("seen", f"[{style}]{detail}[/]")
     if stored.redactions:
         detail = ", ".join(f"{rule} x{count}" for rule, count in stored.redaction_summary.items())
         header.add_row("redacted", f"{stored.redactions} values ({detail})")
@@ -1714,6 +1727,8 @@ def _render_ingest(report: IngestReport) -> None:
             summary.add_row("already stored", str(report.already_stored))
         if report.content_duplicates:
             summary.add_row("duplicate content", str(report.content_duplicates))
+        if report.occurrences:
+            summary.add_row("sightings recorded", str(report.occurrences))
         if report.id_conflicts:
             summary.add_row("id conflicts", f"[red]{report.id_conflicts}[/]")
         summary.add_row("redacted values", str(report.redactions))

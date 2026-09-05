@@ -25,7 +25,7 @@ from typing import TextIO
 from evalkeep.adapters import AdapterRecord, IssueKind, TraceAdapter, TraceIssue
 from evalkeep.errors import CommandError, ExitCode
 from evalkeep.redaction import RedactionSummary, Redactor
-from evalkeep.storage import StoreResult, TraceStore
+from evalkeep.storage import StoreOutcome, StoreResult, TraceStore
 
 #: Issues kept for terminal display; the rest go to the error JSONL.
 DEFAULT_SAMPLE_LIMIT = 20
@@ -57,6 +57,9 @@ class IngestReport:
     already_stored: int = 0
     content_duplicates: int = 0
     id_conflicts: int = 0
+    #: New sightings recorded. An interaction seen again is not stored twice,
+    #: but the fact that it happened again is kept.
+    occurrences: int = 0
 
     # Redaction
     redactions: int = 0
@@ -171,6 +174,19 @@ def ingest_file(
                 store.classify(redacted) if dry_run else store.add(redacted, redaction=summary)
             )
             _count_outcome(report, outcome.result)
+
+            # Every accepted sighting is recorded, whether or not the
+            # interaction itself was new. Deduplication belongs to the test
+            # suite; the evidence keeps its count.
+            canonical = _canonical_id(outcome)
+            if (
+                not dry_run
+                and canonical is not None
+                and store.record_occurrence(
+                    redacted, canonical_trace_id=canonical, digest=outcome.content_hash
+                )
+            ):
+                report.occurrences += 1
             if outcome.result is StoreResult.ID_CONFLICT:
                 report_issue(
                     TraceIssue(
@@ -186,6 +202,17 @@ def ingest_file(
                 )
 
     return report
+
+
+def _canonical_id(outcome: StoreOutcome) -> str | None:
+    """Which stored trace this sighting belongs to, or None if it was refused."""
+    match outcome.result:
+        case StoreResult.STORED | StoreResult.ALREADY_STORED:
+            return outcome.trace_id
+        case StoreResult.CONTENT_DUPLICATE:
+            return outcome.existing_trace_id
+        case _:
+            return None
 
 
 def _count_outcome(report: IngestReport, result: StoreResult) -> None:

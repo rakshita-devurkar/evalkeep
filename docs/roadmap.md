@@ -84,10 +84,17 @@ at export, silently, which is the worst place for it.
 Where a runner cannot express multi-turn input, the export should **refuse** the
 test with an explanation rather than quietly truncate it.
 
-### Duplicate interactions are discarded
+### Duplicate interactions are discarded — *addressed*
 
-**Today.** Ingest computes a content hash and skips a trace whose content
-already exists under another ID, reporting it as a content duplicate.
+**Resolved.** Every sighting is recorded in `trace_occurrences` while `traces`
+still holds one row per distinct interaction, so frequency, date range and
+affected agent versions survive. Occurrence IDs are derived from the sighting,
+so re-ingesting a file records nothing new. See
+[Occurrences](pipeline.md#occurrences).
+
+**Was.** Ingest computed a content hash and skipped a trace whose content
+already existed under another ID, reporting it as a content duplicate and
+losing everything the repeat could have told you.
 
 **Why it matters.** Deduplication is right for the *test suite* — you want one
 test per failure family, not forty. But it is wrong for the *evidence*. Throwing

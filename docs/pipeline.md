@@ -61,6 +61,26 @@ line  kind          field          problem
 `message`, and where known `trace_id`, `field` and `hint`. Field paths index
 into your own document, so `events.0.tool` is a path you can actually follow.
 
+### Occurrences
+
+Deduplication is right for the *test suite* and wrong for the *evidence*. You
+want one test per failure family, not forty — but throwing away the repeats
+loses how often a failure happens, whether it is spreading, and which agent
+versions it affects, which is exactly what a severity judgement should rest on.
+
+So `traces` holds one row per distinct interaction, and `trace_occurrences`
+holds one row per *sighting*:
+
+```
+$ evalkeep trace show trace-1
+seen      3 times (2026-08-01 to 2026-08-09), on shop-v1, shop-v2
+```
+
+An occurrence ID is derived from the sighting itself — its content hash, the ID
+it arrived with, when it was recorded and where it came from — so re-ingesting a
+file records nothing new. A frequency you can inflate by re-running a command is
+not a frequency.
+
 ## Failure detection
 
 `evalkeep detect` runs every detector over every stored trace and records what
