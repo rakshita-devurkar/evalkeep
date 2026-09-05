@@ -493,6 +493,41 @@ Node — reading them is not enough. The bug those tests exist for was an operat
 precedence mistake (`(a||b).some(...)` written without the outer parentheses)
 that made **every tool assertion silently pass**.
 
+### Fixture replay
+
+`dataset build` records every tool result the original agent saw. The export
+publishes them to each test as a `fixtures` variable:
+
+```yaml
+vars:
+  input: Refund my latest order.
+  fixtures:
+    - tool: list_orders
+      arguments: {customer_id: cust-77}
+      result: [{order_id: order-A, placed_at: '2026-06-01'}, ...]
+```
+
+A target that wants a faithful replay reads that variable instead of calling its
+real tools. The bundled example agents show the whole convention in six lines:
+
+```python
+def _orders(context):
+    fixtures = ((context or {}).get("vars") or {}).get("fixtures") or []
+    for fixture in fixtures:
+        if fixture.get("tool") == "list_orders" and isinstance(fixture.get("result"), list):
+            return fixture["result"]
+    return DEFAULT_ORDERS
+```
+
+For an HTTP target, reference `{{fixtures}}` in the request body.
+
+**Evalkeep publishes; it does not inject.** It cannot intercept a black-box
+agent's tool calls, so a target that ignores the variable runs against live data
+— which answers a different question than the one the comparison reports. Rather
+than let that pass silently, export and run warn when a target demonstrably
+cannot receive fixtures: an HTTP body that never mentions them, or a direct model
+provider, which has nowhere to put them.
+
 ## Comparison
 
 `evalkeep compare` aligns two runs by stable test ID and classifies every pair

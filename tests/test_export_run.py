@@ -25,7 +25,7 @@ from evalkeep.commands.target_cmd import add_target
 from evalkeep.errors import CommandError, ExitCode
 from evalkeep.exporters import ExportFormat, parse_format
 from evalkeep.exporters.generic import to_jsonl, to_record
-from evalkeep.exporters.promptfoo import assertion, provider_for
+from evalkeep.exporters.promptfoo import assertion, build_test_case, provider_for
 from evalkeep.regression import Expectation, ExpectationType
 from evalkeep.runner import import_results, write_suite
 from evalkeep.runs import ErrorKind, Outcome, suite_hash
@@ -665,3 +665,179 @@ class TestAgainstTheRealRunner:
         assert baseline.counts.get(Outcome.FAIL) == 3
         assert candidate.counts.get(Outcome.PASS) == 3
         assert baseline.run.suite_hash == candidate.run.suite_hash
+
+
+def load_example_agent(name: str) -> Any:
+    """Import a bundled example agent by path, as the runner does."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(f"_example_{name}", AGENTS / f"{name}.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestFixtureReplay:
+    """Recorded tool results must reach the target, or the run is not a replay."""
+
+    def _test_with_fixtures(self) -> Any:
+        from evalkeep.regression import CaseInput, Fixture, Provenance, RegressionTest
+
+        return RegressionTest(
+            test_id="refund_my_latest_order_abc12345",
+            failure_id="fail-abc",
+            input=CaseInput(text="Refund my latest order."),
+            fixtures=[
+                Fixture(
+                    tool="list_orders",
+                    arguments={"customer_id": "cust-77"},
+                    result=[{"order_id": "order-C"}],
+                    call_id="c1",
+                )
+            ],
+            provenance=Provenance(trace_id="t1", failure_id="fail-abc", content_hash="sha256:abc"),
+        )
+
+    def test_a_replay_view_drops_the_recording_artifact(self) -> None:
+        fixture = self._test_with_fixtures().fixtures[0]
+        assert "call_id" not in fixture.for_replay()
+        assert fixture.for_replay()["result"] == [{"order_id": "order-C"}]
+
+    def test_fixtures_are_published_as_a_test_variable(self) -> None:
+        from evalkeep.exporters.promptfoo import FIXTURES_VAR
+
+        case = build_test_case(self._test_with_fixtures())
+        assert case["vars"][FIXTURES_VAR][0]["tool"] == "list_orders"
+        assert case["vars"][FIXTURES_VAR][0]["result"] == [{"order_id": "order-C"}]
+
+    def test_no_fixtures_means_no_variable(self) -> None:
+        from evalkeep.exporters.promptfoo import FIXTURES_VAR
+
+        test = self._test_with_fixtures()
+        test.fixtures = []
+        assert FIXTURES_VAR not in build_test_case(test)["vars"]
+
+    def test_they_survive_into_the_written_config(self, approved: Path) -> None:
+        result = export_suite(project_root=approved, target_id="baseline")
+        config = yaml.safe_load(result.path.read_text())
+        with_fixtures = [c for c in config["tests"] if "fixtures" in c["vars"]]
+        assert with_fixtures, "the refund example records tool results"
+        assert any(
+            f["tool"] == "refund_order" for c in with_fixtures for f in c["vars"]["fixtures"]
+        )
+
+
+class TestReplayWarnings:
+    """Silently not replaying is worse than not replaying."""
+
+    def _tests(self) -> Any:
+        from evalkeep.regression import CaseInput, Fixture, Provenance, RegressionTest
+
+        return [
+            RegressionTest(
+                test_id="t",
+                failure_id="f",
+                input=CaseInput(text="x"),
+                fixtures=[Fixture(tool="list_orders", result=[])],
+                provenance=Provenance(trace_id="t1", failure_id="f", content_hash="h"),
+            )
+        ]
+
+    def _http(self, body: dict[str, Any]) -> Target:
+        return Target(
+            target_id="candidate",
+            kind=TargetKind.HTTP,
+            url="https://agent.example.com/chat",
+            body=body,
+        )
+
+    def test_an_http_body_that_ignores_fixtures_is_flagged(self) -> None:
+        from evalkeep.exporters import replay_warnings
+
+        (warning,) = replay_warnings(self._tests(), self._http({"message": "{{input}}"}))
+        assert "never references" in warning
+        assert "real tools" in warning
+
+    def test_an_http_body_that_uses_them_is_not(self) -> None:
+        from evalkeep.exporters import replay_warnings
+
+        target = self._http({"message": "{{input}}", "recorded": "{{fixtures}}"})
+        assert replay_warnings(self._tests(), target) == []
+
+    def test_a_model_target_cannot_receive_them(self) -> None:
+        from evalkeep.exporters import replay_warnings
+
+        target = Target(target_id="m", kind=TargetKind.MODEL, provider="anthropic:x")
+        (warning,) = replay_warnings(self._tests(), target)
+        assert "cannot receive" in warning
+
+    def test_a_script_target_is_not_flagged(self) -> None:
+        """A script can read the variable; whether it does is its own business."""
+        from evalkeep.exporters import replay_warnings
+
+        assert replay_warnings(self._tests(), script_target()) == []
+
+    def test_tests_without_fixtures_warn_about_nothing(self) -> None:
+        from evalkeep.exporters import replay_warnings
+
+        tests = self._tests()
+        tests[0].fixtures = []
+        assert replay_warnings(tests, self._http({"message": "{{input}}"})) == []
+
+    def test_export_surfaces_the_warning(self, approved: Path) -> None:
+        add_target(
+            "remote",
+            TargetKind.HTTP,
+            project_root=approved,
+            url="https://agent.example.com/chat",
+            body={"message": "{{input}}"},
+        )
+        result = export_suite(project_root=approved, target_id="remote")
+        assert any("never references" in w for w in result.warnings)
+
+
+class TestExampleAgentsReplay:
+    """The bundled example demonstrates the convention, so it must actually work."""
+
+    FIXTURE_ORDERS: ClassVar[dict[str, Any]] = {
+        "vars": {
+            "fixtures": [
+                {
+                    "tool": "list_orders",
+                    "arguments": {"customer_id": "cust-77"},
+                    "result": [
+                        {"order_id": "order-X", "placed_at": "2020-01-01"},
+                        {"order_id": "order-Z", "placed_at": "2030-01-01"},
+                    ],
+                }
+            ]
+        }
+    }
+
+    def _refunded(self, module: Any, context: Any) -> str:
+        response = module.call_api("Refund my latest order.", None, context)
+        call = response["output"]["toolCalls"][-1]
+        return str(call["arguments"]["order_id"])
+
+    def test_without_fixtures_the_agents_use_their_own_shop(self) -> None:
+        assert self._refunded(load_example_agent("baseline"), None) == "order-A"
+        assert self._refunded(load_example_agent("candidate"), None) == "order-C"
+
+    def test_with_fixtures_they_replay_what_was_recorded(self) -> None:
+        """The recorded orders differ from the defaults, so this cannot pass by luck."""
+        baseline = self._refunded(load_example_agent("baseline"), self.FIXTURE_ORDERS)
+        candidate = self._refunded(load_example_agent("candidate"), self.FIXTURE_ORDERS)
+        assert baseline == "order-X"  # still buggy: oldest
+        assert candidate == "order-Z"  # still fixed: newest
+
+    def test_a_malformed_fixture_does_not_break_the_agent(self) -> None:
+        malformed: list[dict[str, Any]] = [
+            {},
+            {"vars": {}},
+            {"vars": {"fixtures": None}},
+            {"vars": {"fixtures": []}},
+        ]
+        agent = load_example_agent("candidate")
+        for context in malformed:
+            assert self._refunded(agent, context) == "order-C"

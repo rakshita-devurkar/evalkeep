@@ -9,7 +9,7 @@ import yaml
 
 from evalkeep.config import Project
 from evalkeep.errors import CommandError
-from evalkeep.exporters import ExportFormat, build_config, to_jsonl
+from evalkeep.exporters import ExportFormat, build_config, replay_warnings, to_jsonl
 from evalkeep.redaction import Redactor
 from evalkeep.regression import RegressionTest, ReviewStatus
 from evalkeep.runner import RunOutcome, execute
@@ -26,6 +26,7 @@ class ExportResult:
     path: Path
     tests: int
     target_id: str | None = None
+    warnings: tuple[str, ...] = ()
 
 
 def approved_tests(*, project_root: Path = Path()) -> list[RegressionTest]:
@@ -63,7 +64,11 @@ def export_suite(
         encoding="utf-8",
     )
     return ExportResult(
-        format=export_format, path=path, tests=len(tests), target_id=target.target_id
+        format=export_format,
+        path=path,
+        tests=len(tests),
+        target_id=target.target_id,
+        warnings=tuple(replay_warnings(tests, target)),
     )
 
 
@@ -84,6 +89,7 @@ def run_suite(
     if limit is not None:
         tests = tests[:limit]
 
+    warnings = replay_warnings(tests, target)
     outcome = execute(
         tests,
         target,
@@ -103,6 +109,7 @@ def run_suite(
         pending.rename(final)
         outcome.run.output_dir = str(final)
 
+    outcome.messages[:0] = warnings
     with TraceStore.open(project.database_path) as store:
         store.runs.save(outcome.run, outcome.results)
     return outcome
