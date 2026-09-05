@@ -16,6 +16,7 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError
 
 from evalkeep.errors import CommandError
+from evalkeep.pseudonyms import SALT_FILENAME, Pseudonymizer
 
 CONFIG_FILENAME = "evalkeep.yaml"
 STATE_DIRNAME = ".evalkeep"
@@ -36,6 +37,8 @@ STATE_SUBDIRS: dict[str, str] = {
 GITIGNORE_ENTRIES: tuple[str, ...] = (
     ".env",
     f"{STATE_DIRNAME}/database.db",
+    # The salt is what makes pseudonyms unguessable.
+    f"{STATE_DIRNAME}/salt",
     f"{STATE_DIRNAME}/data/",
     f"{STATE_DIRNAME}/cache/",
     f"{STATE_DIRNAME}/runs/",
@@ -52,6 +55,10 @@ class RedactionConfig(BaseModel):
     payment_cards: bool = True
     token_prefixes: bool = True
     secret_field_names: bool = True
+    #: Replace trace, event and call IDs with per-project tokens. Off by
+    #: default because it changes the IDs you see; turn it on when your own
+    #: identifiers embed customer data. Lookups keep accepting the originals.
+    pseudonymize_identifiers: bool = False
 
 
 class AnalyzerConfig(BaseModel):
@@ -149,6 +156,29 @@ class Project:
     @property
     def database_path(self) -> Path:
         return self.state_dir / "database.db"
+
+    @property
+    def salt_path(self) -> Path:
+        return self.state_dir / SALT_FILENAME
+
+    def pseudonymizer(self) -> Pseudonymizer | None:
+        """The project's pseudonymizer, or ``None`` when the feature is off."""
+        if not self.config.redaction.pseudonymize_identifiers:
+            return None
+        return Pseudonymizer.load(self.salt_path)
+
+    def identify(self, value: str) -> list[str]:
+        """Every stored ID a user-supplied identifier could mean.
+
+        With pseudonymization on, someone will sometimes paste an ID from their
+        own systems and sometimes one Evalkeep printed. Both should work, and
+        neither requires storing the original.
+        """
+        cleaned = value.strip()
+        pseudonymizer = self.pseudonymizer()
+        if pseudonymizer is None:
+            return [cleaned]
+        return [cleaned, pseudonymizer.token(cleaned, field="trace_id")]
 
     def subdir(self, name: str) -> Path:
         return self.state_dir / name

@@ -33,9 +33,10 @@ Toggle any rule in `evalkeep.yaml`. The rules err toward over-redaction — a
 redacted order number is an inconvenience, a stored API key is an incident —
 with two deliberate exceptions that keep the data usable:
 
-- **Identifiers are never rewritten.** `trace_id`, `event_id`, `call_id` and
-  `tool` survive verbatim; scrubbing them would break the links the whole
-  pipeline runs on.
+- **Identifiers are not scrubbed.** `trace_id`, `event_id`, `call_id` and
+  `tool` survive verbatim, because replacing them with a placeholder would
+  collapse distinct traces into one. See [Identifiers](#identifiers) for what to
+  do when yours carry personal data.
 - **Secret *field names* only redact strings and containers.** `token_count: 512`
   is a number, not a credential.
 
@@ -47,6 +48,47 @@ digit run in which Luhn alone cannot say which digits belong to which.
 Redaction is deterministic and uses fixed placeholders rather than hashes of the
 original, so two customers' email addresses collapse to the same value — which
 is exactly what clustering wants.
+
+## Identifiers
+
+Identifiers are the one thing redaction cannot simply replace: two traces both
+becoming `[REDACTED:email]` would collide, and the pipeline is built on these
+values being distinct. That is fine when a `trace_id` is a UUID and dangerous
+when it is `order-jane@example.com-2026-06-01`.
+
+Turn on pseudonymization when your identifiers carry customer data:
+
+```yaml
+redaction:
+  pseudonymize_identifiers: true
+```
+
+Each identifier then becomes a token derived from a per-project salt:
+
+```
+order-jane@example.com-2026-06-01  →  trace-dd63e3d83f93
+```
+
+- **The original is never stored.** Only the token reaches the database, the
+  exports, or an analyzer prompt.
+- **Links survive**, because the mapping is deterministic — the same original
+  always produces the same token.
+- **You keep using your own IDs.** A lookup hashes whatever you typed, so
+  `evalkeep trace show order-jane@example.com-2026-06-01` still works without the
+  original being written down anywhere.
+- **Scoped to one project.** The salt lives at `.evalkeep/salt`, is created on
+  first use with `0600` permissions, and is gitignored. Two projects produce
+  different tokens for the same original, so a shared export leaks nothing about
+  another project's data. **Losing the salt means losing the ability to match
+  previously stored identifiers.**
+
+It is off by default because it changes the IDs you see, and most trace IDs are
+already opaque. When it is off, ingest tells you if it finds identifiers that
+look like they carry an email address, a phone number or a credential — silence
+there would let the documentation overstate what happened.
+
+Tool names are never pseudonymized: expectations reference them, so rewriting
+them would break the tests.
 
 ## Targets never hold credentials
 

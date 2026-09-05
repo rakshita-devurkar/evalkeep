@@ -25,7 +25,14 @@ def show_trace(trace_id: str, *, project_root: Path = Path()) -> StoredTrace:
     """Load one stored trace, or explain that it is not there."""
     project = Project.load(project_root.expanduser().resolve())
     with TraceStore.open(project.database_path) as store:
-        stored = store.get(trace_id)
+        stored = next(
+            (
+                found
+                for candidate in project.identify(trace_id)
+                if (found := store.get(candidate)) is not None
+            ),
+            None,
+        )
         if stored is None:
             raise CommandError(
                 f"No stored trace with ID {trace_id.strip()!r}.",

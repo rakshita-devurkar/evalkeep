@@ -69,7 +69,7 @@ def show_failure(identifier: str, *, project_root: Path = Path()) -> FailureDeta
     """Look one up by failure ID or by the trace ID it belongs to."""
     project = Project.load(project_root.expanduser().resolve())
     with TraceStore.open(project.database_path) as store:
-        failure = resolve_failure(store, identifier)
+        failure = resolve_failure(store, identifier, project=project)
         stored = store.get(failure.trace_id)
         if stored is None:  # pragma: no cover - the foreign key prevents this
             raise CommandError(f"Trace {failure.trace_id!r} is missing from the store.")
@@ -91,7 +91,7 @@ def review_failure(
     """Record a human decision on an existing failure."""
     project = Project.load(project_root.expanduser().resolve())
     with TraceStore.open(project.database_path) as store:
-        failure = resolve_failure(store, identifier)
+        failure = resolve_failure(store, identifier, project=project)
         failure.review(status, reviewer=reviewer or default_reviewer(), reason=reason)
         store.failures.save(failure)
         return failure
@@ -107,31 +107,45 @@ def add_failure(
     """Mark a trace as a failure by hand, with no detector evidence."""
     project = Project.load(project_root.expanduser().resolve())
     with TraceStore.open(project.database_path) as store:
-        if store.get(trace_id) is None:
+        stored_id = next((c for c in project.identify(trace_id) if store.get(c) is not None), None)
+        if stored_id is None:
             raise CommandError(
                 f"No stored trace with ID {trace_id.strip()!r}.",
                 hint="Run 'evalkeep trace list' to see what has been ingested.",
             )
-        existing = store.failures.get_by_trace(trace_id.strip())
+        existing = store.failures.get_by_trace(stored_id)
         if existing is not None:
             raise CommandError(
                 f"Trace {trace_id.strip()!r} already has failure {existing.failure_id} "
                 f"({existing.status.value}).",
                 hint=f"Use 'evalkeep failures confirm {existing.failure_id}' instead.",
             )
-        failure = Failure.manual(
-            trace_id.strip(), reviewer=reviewer or default_reviewer(), reason=reason
-        )
+        failure = Failure.manual(stored_id, reviewer=reviewer or default_reviewer(), reason=reason)
         store.failures.save(failure)
         return failure
 
 
-def resolve_failure(store: TraceStore, identifier: str) -> Failure:
-    """Accept either a failure ID or the trace ID it was derived from."""
+def resolve_failure(
+    store: TraceStore, identifier: str, *, project: Project | None = None
+) -> Failure:
+    """Accept a failure ID, or the trace ID it was derived from.
+
+    With pseudonymization on, the trace ID someone types may be the original
+    rather than the stored token, so every candidate spelling is tried.
+    """
     cleaned = identifier.strip()
-    failure = store.failures.get(cleaned) or store.failures.get_by_trace(cleaned)
-    if failure is None and not cleaned.startswith("fail-"):
-        failure = store.failures.get(failure_id_for(cleaned))
+    candidates = project.identify(cleaned) if project is not None else [cleaned]
+
+    failure = store.failures.get(cleaned)
+    for candidate in candidates:
+        if failure is not None:
+            break
+        failure = store.failures.get_by_trace(candidate)
+    for candidate in candidates:
+        if failure is not None:
+            break
+        if not candidate.startswith("fail-"):
+            failure = store.failures.get(failure_id_for(candidate))
     if failure is None:
         raise CommandError(
             f"No failure matching {cleaned!r}.",
