@@ -41,6 +41,7 @@ def run_discovery(
     analyze: bool = True,
     force: bool = False,
     use_cache: bool = True,
+    group_undescribed: bool = False,
 ) -> DiscoveryReport:
     """Analyze (when a provider is configured), embed, cluster and select."""
     project = Project.load(project_root.expanduser().resolve())
@@ -57,7 +58,14 @@ def run_discovery(
                 "No failure candidates to group.", hint="Run 'evalkeep detect' first."
             )
         try:
-            report = discover(store, embedder, cache, project.config.clustering, force=force)
+            report = discover(
+                store,
+                embedder,
+                cache,
+                project.config.clustering,
+                force=force,
+                group_undescribed=group_undescribed,
+            )
         except ClusterEditsWouldBeLost as exc:
             names = ", ".join(cluster.label for cluster in exc.clusters)
             raise CommandError(
@@ -226,7 +234,7 @@ def _combined_label(store: TraceStore, members: list[ClusterMember]) -> str:
     for member in members:
         analysis = store.failures.get_analysis(member.failure_id)
         if analysis is not None:
-            inputs.append(ClusterInput(failure_id=member.failure_id, analysis=analysis))
+            inputs.append(ClusterInput.from_analysis(member.failure_id, analysis))
     return derive_label(inputs) if inputs else "unlabelled"
 
 

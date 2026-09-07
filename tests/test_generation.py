@@ -369,12 +369,25 @@ class TestDatasetBuild:
         report = build_dataset(project_root=discovered, limit=1)
         assert report.created == 1
 
-    def test_unanalyzed_failures_are_reported(self, initialized_project: Path) -> None:
+    def test_undescribed_failures_still_get_a_draft(self, initialized_project: Path) -> None:
+        """Nobody diagnosed them, but the trace still shows what the agent did.
+
+        Refusing to draft anything would mean a first run produces nothing at
+        all, which is worse than a draft that says plainly it is undiagnosed.
+        """
         ingest_traces(EXAMPLE, project_root=initialized_project)
         run_detection(project_root=initialized_project)
         report = build_dataset(project_root=initialized_project, representatives_only=False)
         assert report.unanalyzed == 3
-        assert report.created == 0
+        assert report.created == 3
+
+    def test_an_undescribed_draft_says_so(self, initialized_project: Path) -> None:
+        ingest_traces(EXAMPLE, project_root=initialized_project)
+        run_detection(project_root=initialized_project)
+        build_dataset(project_root=initialized_project, representatives_only=False)
+        test = show_test("trace-1042", project_root=initialized_project)
+        assert any("has not been described" in warning for warning in test.warnings)
+        assert test.provenance.failure_type is None
 
     def test_building_without_clusters_is_a_command_error(self, initialized_project: Path) -> None:
         ingest_traces(EXAMPLE, project_root=initialized_project)

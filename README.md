@@ -27,22 +27,46 @@ Node.js is needed only for `evalkeep run`, which shells out to Promptfoo.
 
 ## Quick start
 
-The whole pipeline, offline, no API key, against the bundled example:
+Point it at a trace file. One command takes you from raw traces to a review
+queue — offline, no API key:
 
 ```bash
-uv run evalkeep demo .          # write the example traces and agents out
+uv run evalkeep demo .        # write the bundled example traces and agents out
 uv run evalkeep init
-uv run evalkeep ingest refund-agent/traces.jsonl           # validate, redact, store
-uv run evalkeep detect                                     # evidence-backed failures
+uv run evalkeep from-traces refund-agent/traces.jsonl
+```
 
-uv run evalkeep failures label trace-1042 \
-  --type wrong_tool_argument --component tool_arguments --severity high \
-  --summary "Refunded the oldest order instead of the newest order."
+```
+5 trace(s) ingested
+3 failure(s) found  explicit_status x3, failed_evaluator x1, negative_feedback x2
+2 failure famil(ies)
+3 with enough evidence for a regression test
+3 of them only forbid the mistake that was observed; say what should have happened at review.
 
-uv run evalkeep discover        # embed, cluster, pick representatives
-uv run evalkeep dataset build   # draft a test per representative
-uv run evalkeep review          # approve / edit / reject / skip
+note: 3 failure(s) were grouped by what was observed, not by what they are. Describe
+them with 'evalkeep failures label', or set a working analyzer.provider in
+evalkeep.yaml, and re-run for tighter families.
 
+Review them: evalkeep review  (3 pending)
+```
+
+Those two qualifiers are the honest state of a first run. Nothing in a trace
+says what the agent *should* have done, so a draft can forbid the mistake it
+saw — enough to fail when the bug returns — but cannot yet confirm the right
+behaviour. Describing the failures is what closes that gap, by hand at review
+or with an analyzer configured.
+
+It stops at review on purpose. Everything before the gate is derived and can be
+re-run; approving a test is a judgement, and a command that approved things on
+your behalf would defeat the point.
+
+```bash
+uv run evalkeep review        # approve / edit / reject / skip
+```
+
+Then run the approved suite against two versions of your agent and compare:
+
+```bash
 uv run evalkeep targets add baseline  --type python --function call_api \
   --path refund-agent/agents/baseline.py
 uv run evalkeep targets add candidate --type python --function call_api \
@@ -56,15 +80,32 @@ uv run evalkeep compare
 fixes it:
 
 ```
-baseline pass rate      0.0%
-candidate pass rate   100.0%
-difference           +100.0%
-p-value               0.2500
-Only 3 test(s) changed outcome; that is too few for a trustworthy interval, so none is given.
+compared                  3
+baseline pass rate    66.7%
+candidate pass rate  100.0%
+difference           +33.3%
+p-value               1.0000
+Only 1 test(s) changed outcome; that is too few for a trustworthy interval, so none is given.
 ```
 
-That last line is the point: a 0% → 100% improvement is still **not
-statistically significant** on three tests, and Evalkeep says so.
+That last line is the point: one test flipping is not evidence that the agent
+got better, and Evalkeep says so instead of reporting +33.3% as a result.
+
+### Doing it stage by stage
+
+`from-traces` runs five commands in order. Each is a real decision with its own
+evidence, and you will want them separately once you are tuning a suite:
+
+```bash
+uv run evalkeep ingest traces.jsonl   # validate, redact, store
+uv run evalkeep detect                # evidence-backed failures
+uv run evalkeep analyze               # describe them (or: failures label)
+uv run evalkeep discover              # embed, cluster, pick representatives
+uv run evalkeep dataset build         # draft a test per representative
+```
+
+Re-running `from-traces` is safe: it skips traces it already has and rebuilds
+drafts, but never touches a test you have reviewed.
 
 ### Bring your own traces
 

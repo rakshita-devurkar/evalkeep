@@ -50,6 +50,7 @@ from evalkeep.commands.discover_cmd import (
 )
 from evalkeep.commands.ingest_cmd import ingest_traces
 from evalkeep.commands.init_cmd import Action, initialize_project
+from evalkeep.commands.pipeline_cmd import PipelineReport, from_traces
 from evalkeep.commands.review_cmd import (
     ReviewItem,
     approve_test,
@@ -140,6 +141,56 @@ def cli(
     ),
 ) -> None:
     """Evalkeep turns recorded failures into a trustworthy regression suite."""
+
+
+@app.command("from-traces")
+def from_traces_command(
+    path: Path = typer.Argument(..., help="Trace file to read."),
+    project: Path = PROJECT_OPTION,
+    trace_format: str = typer.Option(
+        DEFAULT_ADAPTER,
+        "--format",
+        "-f",
+        help=f"Trace format. One of: {', '.join(sorted(available_adapters()))}.",
+    ),
+    limit: int | None = typer.Option(None, "--limit", min=1, help="Draft at most N tests."),
+) -> None:
+    """Ingest, detect, group and draft tests in one pass, ready for review."""
+    report = _run(
+        lambda: from_traces(path, project_root=project, adapter_name=trace_format, limit=limit)
+    )
+    _render_pipeline(report)
+
+
+def _render_pipeline(report: PipelineReport) -> None:
+    console.print(f"[bold]{report.traces}[/] trace(s) ingested")
+    if report.already_known:
+        console.print(f"[dim]{report.already_known} were already stored, and were skipped[/]")
+
+    if report.found_nothing:
+        console.print("\n[bold]No failures found.[/]")
+        console.print(
+            "[dim]Evalkeep only reports evidence: an explicit failure status, "
+            "negative feedback, or a failed evaluator. If your traces record "
+            "none of those, mark them by hand with 'evalkeep failures add'.[/]"
+        )
+        return
+
+    evidence = ", ".join(f"{kind} x{count}" for kind, count in sorted(report.evidence.items()))
+    console.print(f"[bold red]{report.failures}[/] failure(s) found  [dim]{evidence}[/]")
+    console.print(f"[bold]{report.families}[/] failure famil(ies)")
+    colour = "green" if report.ready else "yellow"
+    console.print(f"[bold {colour}]{report.ready}[/] with enough evidence for a regression test")
+    if report.needs_expectation:
+        console.print(
+            f"[dim]{report.needs_expectation} of them only forbid the mistake that was "
+            "observed; say what should have happened at review.[/]"
+        )
+
+    for note in report.notes:
+        console.print(f"\n[yellow]note:[/] {note}")
+
+    console.print(f"\nReview them: [bold]evalkeep review[/]  ({report.pending_review} pending)")
 
 
 @app.command()

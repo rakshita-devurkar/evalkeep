@@ -32,14 +32,77 @@ from evalkeep.errors import CommandError
 
 @dataclass(frozen=True)
 class ClusterInput:
-    """One failure, as clustering sees it."""
+    """One failure, as clustering sees it.
+
+    A failure is normally grouped by its *description* -- the structured
+    analysis someone or something wrote for it. Before anyone has described
+    them, it can still be grouped by what was *observed*: which tools ran and
+    what the evidence said. That is weaker, and the difference is tracked here
+    rather than hidden, so a report can say which it did.
+    """
 
     failure_id: str
-    analysis: FailureAnalysis
+    text: str
+    severity: Severity | None = None
+    failure_type: str | None = None
+    component: str | None = None
+    #: The tools this failure used, for naming a family nobody has described.
+    behaviour: str | None = None
+    #: False when this was grouped by observed behaviour rather than a description.
+    described: bool = True
 
-    @property
-    def text(self) -> str:
-        return cluster_text(self.analysis)
+    @classmethod
+    def from_analysis(cls, failure_id: str, analysis: FailureAnalysis) -> ClusterInput:
+        return cls(
+            failure_id=failure_id,
+            text=cluster_text(analysis),
+            severity=analysis.severity,
+            failure_type=analysis.failure_type.value,
+            component=analysis.component.value,
+        )
+
+    @classmethod
+    def from_observation(
+        cls, failure_id: str, text: str, *, behaviour: str | None = None
+    ) -> ClusterInput:
+        return cls(failure_id=failure_id, text=text, behaviour=behaviour, described=False)
+
+
+def observation_text(tools: list[str], kinds: list[str], evidence: list[str]) -> str:
+    """What a failure looks like before anyone has described it.
+
+    Built from what the agent *did* -- which tools ran, what kind of evidence
+    caught it -- and only then from the evidence's own words. Deliberately not
+    from the request: two customers asking the same thing in different words are
+    the same failure, and their phrasing would scatter them.
+
+    The tool list is repeated because in a bag-of-words representation
+    repetition *is* weight, and behaviour is the reliable signal here. Two
+    reports of one bug are worded differently while the calls the agent made
+    stay the same, so letting the wording dominate loses the family. Sublinear
+    term weighting damps the repetition, so this is a nudge rather than a
+    override.
+
+    Boilerplate evidence is dropped: "explicitly marked as failed" appears on
+    every explicit failure and so distinguishes none of them.
+    """
+    listed = ", ".join(sorted(set(tools)))
+    informative = [line for line in evidence if line and not _boilerplate(line)]
+    weighted = " ".join([listed] * 3) if listed else ""
+    return f"{weighted} | {' '.join(sorted(set(kinds)))} | {' '.join(informative)}".strip(" |")
+
+
+_BOILERPLATE = (
+    "explicitly marked as failed",
+    "explicitly marked as errored",
+    "feedback was rated negative",
+    "reported a failure",
+)
+
+
+def _boilerplate(line: str) -> bool:
+    lowered = line.lower()
+    return any(phrase in lowered for phrase in _BOILERPLATE)
 
 
 def cluster_text(analysis: FailureAnalysis) -> str:
@@ -76,26 +139,42 @@ def build_clusters(
         raise ValueError("inputs and vectors must be the same length")
 
     matrix = np.asarray(vectors, dtype=np.float64)
-    assignments = _assign(matrix, config)
 
+    # A described failure is embedded from someone's account of what went wrong;
+    # an undescribed one from the tools it called and the evidence that caught
+    # it. Those are different kinds of text, so their distances sit on different
+    # scales and no single threshold cuts both correctly -- and a distance
+    # measured *between* the two populations does not mean anything at all.
+    # So each is clustered against its own kind, at its own threshold, and the
+    # groups are concatenated. Two records of one bug, one described and one
+    # not, therefore land in separate families: that is the honest answer, since
+    # nothing yet establishes they are the same.
     clusters: list[Cluster] = []
-    for group in sorted(set(assignments)):
-        indices = [i for i, label in enumerate(assignments) if label == group]
-        clusters.append(_build_one([inputs[i] for i in indices], matrix[indices]))
+    for described in (True, False):
+        indices = [i for i, item in enumerate(inputs) if item.described is described]
+        if not indices:
+            continue
+        threshold = config.threshold if described else config.undescribed_threshold
+        assignments = _assign(matrix[indices], config, threshold)
+        for group in sorted(set(assignments)):
+            rows = [
+                index for index, label in zip(indices, assignments, strict=True) if label == group
+            ]
+            clusters.append(_build_one([inputs[i] for i in rows], matrix[rows]))
 
     # Largest first, then by ID: a stable order for humans and for tests.
     clusters.sort(key=lambda cluster: (-cluster.size, cluster.cluster_id))
     return clusters
 
 
-def _assign(matrix: np.ndarray[Any, Any], config: ClusteringConfig) -> list[int]:
+def _assign(matrix: np.ndarray[Any, Any], config: ClusteringConfig, threshold: float) -> list[int]:
     if config.linkage != "average" or config.metric != "cosine":
         raise CommandError(
             f"Only average linkage over cosine distance is implemented, not "
             f"{config.linkage!r} over {config.metric!r}.",
             hint="Change clustering.linkage and clustering.metric in evalkeep.yaml.",
         )
-    return average_linkage(matrix, config.threshold)
+    return average_linkage(matrix, threshold)
 
 
 def average_linkage(vectors: np.ndarray[Any, Any], threshold: float) -> list[int]:
@@ -175,7 +254,7 @@ def _build_one(members: list[ClusterInput], vectors: np.ndarray[Any, Any]) -> Cl
     ]
     assign_roles(
         cluster_members,
-        {item.failure_id: item.analysis.severity for item in members},
+        {item.failure_id: item.severity for item in members if item.severity is not None},
     )
     return Cluster.build(label=derive_label(members), members=cluster_members)
 
@@ -235,9 +314,18 @@ def derive_label(inputs: list[ClusterInput]) -> str:
     Derived rather than generated: it needs no provider, it is reproducible, and
     a reviewer can rename it. Guide 8G deliberately keeps this label out of test
     IDs for exactly that reason -- it is mutable.
+
+    An undescribed family is named for what it did, and says so, because a label
+    that reads like an analysis when nobody analysed anything would be a lie.
     """
-    types = _most_common(item.analysis.failure_type.value for item in inputs)
-    components = _most_common(item.analysis.component.value for item in inputs)
+    described = [item for item in inputs if item.described and item.failure_type]
+    if not described:
+        behaviours = [item.behaviour for item in inputs if item.behaviour]
+        if not behaviours:
+            return "undescribed failures"
+        return f"undescribed: {_most_common(iter(behaviours))}"
+    types = _most_common(item.failure_type or "" for item in described)
+    components = _most_common(item.component or "" for item in described)
     return f"{types} in {components}"
 
 

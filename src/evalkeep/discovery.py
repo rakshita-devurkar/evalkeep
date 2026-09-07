@@ -17,7 +17,12 @@ import uuid
 from dataclasses import dataclass, field
 
 from evalkeep.cache import EmbeddingCache, embedding_key
-from evalkeep.clustering import ClusterInput, build_clusters, clustering_parameters
+from evalkeep.clustering import (
+    ClusterInput,
+    build_clusters,
+    clustering_parameters,
+    observation_text,
+)
 from evalkeep.clusters import Cluster, ClusteringRun
 from evalkeep.config import ClusteringConfig
 from evalkeep.embeddings import EmbeddingProvider
@@ -42,6 +47,8 @@ class DiscoveryReport:
     from_cache: int = 0
     kept_labels: int = 0
     discarded_edits: int = 0
+    #: Failures grouped by observed behaviour because nobody described them.
+    grouped_undescribed: int = 0
     largest: int = 0
     parameters: dict[str, object] = field(default_factory=dict)
 
@@ -61,12 +68,13 @@ def discover(
     config: ClusteringConfig,
     *,
     force: bool = False,
+    group_undescribed: bool = False,
 ) -> DiscoveryReport:
     """Cluster analyzed failures and select representatives."""
     report = DiscoveryReport(embedder=embedder.identity)
     report.parameters = dict(clustering_parameters(config))
 
-    inputs = _gather(store, report)
+    inputs = _gather(store, report, group_undescribed=group_undescribed)
     vectors = _embed(inputs, embedder, cache, report)
     clusters = build_clusters(inputs, vectors, config)
 
@@ -88,18 +96,45 @@ def discover(
     return report
 
 
-def _gather(store: TraceStore, report: DiscoveryReport) -> list[ClusterInput]:
-    """Every analyzed, undismissed failure. Unanalyzed ones are reported, not guessed at."""
+def _gather(
+    store: TraceStore, report: DiscoveryReport, *, group_undescribed: bool = False
+) -> list[ClusterInput]:
+    """Undismissed failures, grouped by description where one exists.
+
+    An undescribed failure is skipped by default: grouping by observed behaviour
+    is weaker than grouping by what a failure *is*, and silently mixing the two
+    would make a report mean two different things. ``group_undescribed`` opts
+    in, and the counts say which was used.
+    """
     inputs: list[ClusterInput] = []
     for failure in store.failures.iter_all():
         if failure.status not in CLUSTERABLE:
             continue
         report.considered += 1
         analysis = store.failures.get_analysis(failure.failure_id)
-        if analysis is None:
-            report.unanalyzed += 1
+        if analysis is not None:
+            inputs.append(ClusterInput.from_analysis(failure.failure_id, analysis))
             continue
-        inputs.append(ClusterInput(failure_id=failure.failure_id, analysis=analysis))
+
+        report.unanalyzed += 1
+        if not group_undescribed:
+            continue
+        stored = store.get(failure.trace_id)
+        if stored is None:  # pragma: no cover - the foreign key prevents this
+            continue
+        tools = sorted({call.tool for call in stored.trace.tool_calls})
+        inputs.append(
+            ClusterInput.from_observation(
+                failure.failure_id,
+                behaviour=", ".join(tools) or None,
+                text=observation_text(
+                    [call.tool for call in stored.trace.tool_calls],
+                    [signal.kind.value for signal in failure.signals],
+                    [signal.summary for signal in failure.signals],
+                ),
+            )
+        )
+        report.grouped_undescribed += 1
     # A stable input order keeps the clustering reproducible.
     inputs.sort(key=lambda item: item.failure_id)
     return inputs

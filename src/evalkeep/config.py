@@ -91,6 +91,11 @@ class ClusteringConfig(BaseModel):
     linkage: str = "average"
     #: Cosine distance above which two failures are different families.
     threshold: float = 0.55
+    #: The same, for failures nobody has described yet. Lower because the text
+    #: being compared is different in kind -- short, structured, and repetitive
+    #: rather than a written sentence -- so the distances it produces sit on a
+    #: tighter scale. Measured stable anywhere from 0.35 to 0.50.
+    undescribed_threshold: float = 0.45
 
 
 class RunnerConfig(BaseModel):
