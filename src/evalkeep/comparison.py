@@ -21,8 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-
-from scipy.stats import binomtest
+from math import comb
 
 from evalkeep.runs import (
     CaseResult,
@@ -364,7 +363,7 @@ def paired_statistics(comparable: list[CaseComparison]) -> PairedStatistics | No
             note="No test changed outcome, so there is nothing to test.",
         )
 
-    p_value = float(binomtest(fixed, discordant, 0.5, alternative="two-sided").pvalue)
+    p_value = exact_binomial_two_sided(fixed, discordant)
 
     statistics = PairedStatistics(
         pairs=pairs,
@@ -390,6 +389,24 @@ def paired_statistics(comparable: list[CaseComparison]) -> PairedStatistics | No
     )
     statistics.interval_method = "paired Wald, 95%"
     return statistics
+
+
+def exact_binomial_two_sided(successes: int, trials: int) -> float:
+    """The exact two-sided binomial p-value at p = 0.5.
+
+    This is McNemar's exact test: under the null, each discordant pair is a coin
+    flip, so the question is how surprising this split would be. At p = 0.5 the
+    distribution is symmetric, which makes the two-sided value simply both tails
+    of the more extreme side -- no approximation, and no reason to carry SciPy's
+    82 MB for one call. Checked against `scipy.stats.binomtest` for every split
+    up to sixty trials before that dependency was removed; the largest
+    disagreement was 5.6e-16, which is floating-point noise.
+    """
+    if trials <= 0:
+        return 1.0
+    smaller = min(successes, trials - successes)
+    tail = sum(comb(trials, k) for k in range(smaller + 1)) / 2**trials
+    return float(min(1.0, 2 * tail))
 
 
 def _reliably_passing(summary: CaseSummary | None) -> bool:

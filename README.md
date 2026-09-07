@@ -30,8 +30,9 @@ Node.js is needed only for `evalkeep run`, which shells out to Promptfoo.
 The whole pipeline, offline, no API key, against the bundled example:
 
 ```bash
+uv run evalkeep demo .          # write the example traces and agents out
 uv run evalkeep init
-uv run evalkeep ingest examples/refund-agent/traces.jsonl  # validate, redact, store
+uv run evalkeep ingest refund-agent/traces.jsonl           # validate, redact, store
 uv run evalkeep detect                                     # evidence-backed failures
 
 uv run evalkeep failures label trace-1042 \
@@ -43,9 +44,9 @@ uv run evalkeep dataset build   # draft a test per representative
 uv run evalkeep review          # approve / edit / reject / skip
 
 uv run evalkeep targets add baseline  --type python --function call_api \
-  --path examples/refund-agent/agents/baseline.py
+  --path refund-agent/agents/baseline.py
 uv run evalkeep targets add candidate --type python --function call_api \
-  --path examples/refund-agent/agents/candidate.py
+  --path refund-agent/agents/candidate.py
 uv run evalkeep run --target baseline
 uv run evalkeep run --target candidate
 uv run evalkeep compare
@@ -71,6 +72,8 @@ statistically significant** on three tests, and Evalkeep says so.
 uv run evalkeep ingest spans.json --format otlp        # OpenTelemetry / OpenInference
 uv run evalkeep ingest runs.jsonl --format langsmith   # LangSmith
 ```
+
+`evalkeep demo` also writes an example export in each format.
 
 Adapters read files, never APIs — no credentials, any vendor tier. OpenTelemetry
 covers the most ground, since Langfuse, Braintrust and Phoenix all ingest OTLP.

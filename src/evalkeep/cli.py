@@ -143,6 +143,36 @@ def cli(
 
 
 @app.command()
+def demo(
+    directory: Path = typer.Argument(Path("evalkeep-demo"), help="Where to write them."),
+) -> None:
+    """Write the bundled example traces and agents into a directory.
+
+    The examples ship inside the package, so this works from a PyPI install
+    with no clone and no network.
+    """
+    from evalkeep import examples
+
+    target = directory.expanduser()
+    written = _run(lambda: _write_examples(target))
+    console.print(f"[bold green]wrote[/] {len(written)} files to {target}")
+    console.print(
+        f"\nNext: [bold]evalkeep init && evalkeep ingest {target}/refund-agent/traces.jsonl[/]"
+    )
+    console.print(f"[dim]formats available: {', '.join(examples.available())}[/]")
+
+
+def _write_examples(target: Path) -> list[Path]:
+    from evalkeep import examples
+
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        return examples.copy_to(target)
+    except OSError as exc:
+        raise CommandError(f"Could not write examples to {target}: {exc}") from exc
+
+
+@app.command()
 def version() -> None:
     """Print the Evalkeep version."""
     console.print(__version__)

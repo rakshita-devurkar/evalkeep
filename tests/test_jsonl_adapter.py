@@ -129,7 +129,9 @@ class TestFileReading:
         assert [r.trace.trace_id for r in JsonlAdapter().read(path) if r.trace] == ["t1", "t2"]
 
     def test_reads_the_bundled_refund_example(self) -> None:
-        example = Path(__file__).resolve().parents[1] / "examples/refund-agent/traces.jsonl"
+        example = (
+            Path(__file__).resolve().parents[1] / "src/evalkeep/examples/refund-agent/traces.jsonl"
+        )
         parsed = list(JsonlAdapter().read(example))
         assert len(parsed) == 5
         assert all(record.ok for record in parsed)

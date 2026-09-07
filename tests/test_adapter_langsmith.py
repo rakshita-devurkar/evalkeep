@@ -307,7 +307,7 @@ class TestRegistry:
 
 class TestBundledExample:
     def test_the_example_export_reads_cleanly(self) -> None:
-        example = Path(__file__).resolve().parents[1] / "examples/langsmith/runs.jsonl"
+        example = Path(__file__).resolve().parents[1] / "src/evalkeep/examples/langsmith/runs.jsonl"
         records = list(LangSmithAdapter().read(example))
         assert len(records) == 5
         assert all(record.ok for record in records)

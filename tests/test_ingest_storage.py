@@ -17,7 +17,7 @@ from evalkeep.errors import CommandError, ExitCode
 from evalkeep.ingest import IngestMode
 from evalkeep.storage import TraceStore
 
-EXAMPLE = Path(__file__).resolve().parents[1] / "examples/refund-agent/traces.jsonl"
+EXAMPLE = Path(__file__).resolve().parents[1] / "src/evalkeep/examples/refund-agent/traces.jsonl"
 
 SECRET_EMAIL = "shopper@example.com"
 SECRET_KEY = "sk-livekey0123456789abcdefghij"

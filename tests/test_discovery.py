@@ -29,7 +29,7 @@ from evalkeep.errors import CommandError, ExitCode
 from evalkeep.failures import FailureStatus, failure_id_for
 from evalkeep.storage import TraceStore
 
-EXAMPLE = Path(__file__).resolve().parents[1] / "examples/refund-agent/traces.jsonl"
+EXAMPLE = Path(__file__).resolve().parents[1] / "src/evalkeep/examples/refund-agent/traces.jsonl"
 
 #: Two traces in one family, one clearly apart -- the shape the example dataset
 #: was built to produce.

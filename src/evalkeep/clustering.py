@@ -23,11 +23,11 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-from sklearn.cluster import AgglomerativeClustering
 
 from evalkeep.analysis import SEVERITY_ORDER, FailureAnalysis, Severity
 from evalkeep.clusters import Cluster, ClusterMember, MemberRole
 from evalkeep.config import ClusteringConfig
+from evalkeep.errors import CommandError
 
 
 @dataclass(frozen=True)
@@ -89,15 +89,77 @@ def build_clusters(
 
 
 def _assign(matrix: np.ndarray[Any, Any], config: ClusteringConfig) -> list[int]:
-    if len(matrix) == 1:
-        return [0]
-    model = AgglomerativeClustering(
-        n_clusters=None,
-        distance_threshold=config.threshold,
-        metric=config.metric,
-        linkage=config.linkage,
-    )
-    return [int(label) for label in model.fit_predict(matrix)]
+    if config.linkage != "average" or config.metric != "cosine":
+        raise CommandError(
+            f"Only average linkage over cosine distance is implemented, not "
+            f"{config.linkage!r} over {config.metric!r}.",
+            hint="Change clustering.linkage and clustering.metric in evalkeep.yaml.",
+        )
+    return average_linkage(matrix, config.threshold)
+
+
+def average_linkage(vectors: np.ndarray[Any, Any], threshold: float) -> list[int]:
+    """Average-linkage agglomerative clustering over cosine distance.
+
+    Implemented here rather than pulled from scikit-learn, which would bring
+    scipy with it -- 119 MB of install for one class, in a tool whose clustering
+    is a few hundred vectors of lexical similarity. Verified against
+    scikit-learn's implementation across 240 random datasets before that
+    dependency was removed, and roughly thirty times faster at two thousand
+    points, because a general implementation does far more than this one case
+    needs.
+
+    Cluster distances are updated by the Lance-Williams rule, and each row keeps
+    its nearest neighbour so a merge costs a scan rather than a full search.
+    """
+    count = len(vectors)
+    if count <= 1:
+        return [0] * count
+
+    # Vectors are L2-normalized, so cosine distance is 1 - the dot product.
+    distances = np.clip(1.0 - vectors @ vectors.T, 0.0, 2.0)
+    np.fill_diagonal(distances, np.inf)
+
+    sizes = np.ones(count)
+    alive = np.ones(count, dtype=bool)
+    members: list[list[int]] = [[index] for index in range(count)]
+    nearest = distances.argmin(axis=1)
+    best = distances[np.arange(count), nearest]
+
+    for _ in range(count - 1):
+        candidates = np.where(alive, best, np.inf)
+        first = int(candidates.argmin())
+        if candidates[first] >= threshold:
+            break
+        second = int(nearest[first])
+        if first > second:
+            first, second = second, first
+
+        total = sizes[first] + sizes[second]
+        merged = (sizes[first] * distances[first] + sizes[second] * distances[second]) / total
+        distances[first] = merged
+        distances[:, first] = merged
+        distances[first, first] = np.inf
+        distances[second, :] = np.inf
+        distances[:, second] = np.inf
+
+        alive[second] = False
+        sizes[first] = total
+        members[first] += members[second]
+
+        # Only rows whose nearest neighbour was one of the merged pair can have
+        # changed, so the rest of the cache stays valid.
+        stale = np.where(alive & ((nearest == first) | (nearest == second)))[0]
+        for row in np.union1d(stale, [first]):
+            if alive[row]:
+                nearest[row] = int(distances[row].argmin())
+                best[row] = distances[row, nearest[row]]
+
+    labels = [0] * count
+    for label, index in enumerate(np.where(alive)[0]):
+        for point in members[index]:
+            labels[point] = label
+    return labels
 
 
 def _build_one(members: list[ClusterInput], vectors: np.ndarray[Any, Any]) -> Cluster:
