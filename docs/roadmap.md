@@ -90,6 +90,40 @@ at export, silently, which is the worst place for it.
 Where a runner cannot express multi-turn input, the export should **refuse** the
 test with an explanation rather than quietly truncate it.
 
+### An exported test carries a redacted prompt
+
+**Today.** Redaction runs before storage, so a test's input is the redacted
+text, not what the recorded agent saw. Measured on 165 tau-bench trajectories:
+27 inputs (16%) differ, because the task instruction contains an email address.
+
+**Why it matters.** Any target that recognizes a request -- a replay harness, a
+fixture lookup, a cache -- is handed a prompt the original system never saw and
+cannot match it. Worse, the failure is silent in the direction that flatters
+the result: a target that returns nothing passes every test built only from
+"must not do X", so a total lookup failure was scored as 12 passes rather than
+12 errors, and the measured improvement moved by 4 points once it was fixed.
+
+**Sketch.** Record the pre-redaction content hash of the input alongside the
+test so a target can key on identity rather than text, and consider failing a
+run where a target returns nothing for every case rather than passing it.
+
+### A test that only forbids a mistake passes against an agent that does nothing
+
+**Today.** `dataset build` warns "No positive expectation", and
+`from-traces` counts those drafts separately. Nothing stops such a test from
+being approved and run.
+
+**Why it matters.** Every negative expectation -- `tool_not_called`,
+`tool_argument_not_equals`, `output_not_contains` -- is satisfied by an empty
+response. A suite made of them reports a rising pass rate as a target degrades
+toward returning nothing, which is the exact opposite of what a regression
+suite is for. This is not hypothetical: it happened during the tau-bench run
+above, and the numbers looked plausible.
+
+**Sketch.** Refuse to approve a test with no positive expectation without an
+explicit override, or have the runner mark a case inconclusive when the target
+produced no output at all.
+
 ### Clustering holds the whole distance matrix in memory
 
 **Today.** `average_linkage` builds a dense `n x n` cosine-distance matrix.

@@ -181,10 +181,23 @@ def _forbid_observed_arguments(
         return []
 
     implicated = calls[-1]
-    arguments = _flatten(implicated.arguments)
+    arguments = {
+        path: value
+        for path, value in _flatten(implicated.arguments).items()
+        if not _is_prose(value)
+    }
     if not arguments:
-        warnings.append(f"{implicated.tool} was called with no scalar arguments to assert against.")
-        return []
+        # Every argument was free-form prose. "summary != '<300 words>'" is
+        # satisfied by any rewording, so it is a check that cannot fail --
+        # worse than no check, because it looks like coverage. Forbid the call
+        # itself instead: on a trace like an unnecessary escalation, making it
+        # at all is the mistake, not the wording of its argument.
+        warnings.append(
+            f"{implicated.tool} was called with no argument specific enough to assert "
+            f"against, so the test forbids the call itself. Narrow it at review if the "
+            f"call was right and only its arguments were wrong."
+        )
+        return _forbid_observed_tool(calls, [])
     if len(calls) > 1:
         warnings.append(
             f"Assertions target the last tool call ({implicated.tool}); "
@@ -199,6 +212,16 @@ def _forbid_observed_arguments(
         )
         for path, value in arguments.items()
     ]
+
+
+#: Longer than any identifier, code, enum or amount an argument carries, and
+#: about where a value stops being something a second run could reproduce.
+_PROSE_LENGTH = 80
+
+
+def _is_prose(value: Any) -> bool:
+    """True for a free-text argument, which no equality check can pin down."""
+    return isinstance(value, str) and (len(value) > _PROSE_LENGTH or value.count(" ") > 8)
 
 
 def _forbid_observed_tool(calls: list[ToolCallEvent], warnings: list[str]) -> list[Expectation]:

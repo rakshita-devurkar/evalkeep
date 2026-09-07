@@ -31,7 +31,9 @@ from evalkeep.commands.review_cmd import approve_test
 from evalkeep.config import ClusteringConfig
 from evalkeep.embeddings import HashingEmbedder
 from evalkeep.errors import CommandError, ExitCode
+from evalkeep.generation import derive_expectations
 from evalkeep.regression import ExpectationType, ReviewStatus
+from evalkeep.trace import NormalizedTrace
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "src/evalkeep/examples/refund-agent/traces.jsonl"
 
@@ -380,6 +382,56 @@ class TestUndescribedGeneration:
         test = list_tests(project_root=initialized_project).tests[0]
         assert test.provenance.failure_type is None
         assert test.provenance.analyzer is None
+
+
+class TestProseArguments:
+    """Found on real tau-bench trajectories: an agent that gives up and calls
+    `transfer_to_human_agents(summary="<300 words>")`. Forbidding that exact
+    summary is a check no rewording can fail."""
+
+    def _trace(self, arguments: dict[str, object]) -> NormalizedTrace:
+        return NormalizedTrace.model_validate(
+            {
+                "trace_id": "t1",
+                "input": {"text": "help me with my delayed flight"},
+                "events": [
+                    {
+                        "event_id": "e1",
+                        "type": "tool_call",
+                        "tool": "escalate",
+                        "arguments": arguments,
+                    }
+                ],
+                "outcome": {"status": "failure"},
+            }
+        )
+
+    def test_a_free_text_argument_is_not_asserted_on(self) -> None:
+        prose = "The user is upset about a delayed flight and wants compensation " * 3
+        expectations, _ = derive_expectations(self._trace({"summary": prose}), None)
+        assert not any(e.type is ExpectationType.TOOL_ARGUMENT_NOT_EQUALS for e in expectations)
+
+    def test_the_call_itself_is_forbidden_instead(self) -> None:
+        """Making the call at all is the mistake, not how it was worded."""
+        prose = "The user is upset about a delayed flight and wants compensation " * 3
+        expectations, warnings = derive_expectations(self._trace({"summary": prose}), None)
+        assert [e.type for e in expectations] == [ExpectationType.TOOL_NOT_CALLED]
+        assert any("forbids the call itself" in w for w in warnings)
+
+    def test_identifiers_are_still_asserted_on(self) -> None:
+        """The fix must not throw away the arguments that do pin a mistake down."""
+        expectations, _ = derive_expectations(
+            self._trace({"order_id": "#W8528674", "reason": "no longer needed"}), None
+        )
+        paths = {e.path for e in expectations}
+        assert "order_id" in paths
+
+    def test_a_mixed_call_keeps_only_the_specific_argument(self) -> None:
+        prose = "The customer explained at length that the item arrived damaged " * 3
+        expectations, _ = derive_expectations(
+            self._trace({"order_id": "#W1", "notes": prose}), None
+        )
+        assert {e.path for e in expectations} == {"order_id"}
 
 
 class TestCli:
