@@ -28,6 +28,14 @@ def _orders(context):
     return DEFAULT_ORDERS
 
 
+def _named_order(lowered, orders):
+    """The order the customer asked for by ID, when they named one."""
+    for order in orders:
+        if order["order_id"].lower() in lowered:
+            return order
+    return None
+
+
 def _respond(text, tool_calls):
     """The response shape every Evalkeep target is normalized to."""
     return {"output": {"text": text, "toolCalls": tool_calls}}
@@ -37,9 +45,13 @@ def call_api(prompt, options=None, context=None):
     lowered = str(prompt).lower()
     orders = _orders(context)
     if "refund" in lowered:
-        target = max(orders, key=lambda order: order["placed_at"])  # the fix
+        # The fix, in two parts: honour an order the customer named, and
+        # otherwise take the newest rather than the oldest. The traces record
+        # both mistakes, so fixing only one leaves a test failing.
+        named = _named_order(lowered, orders)
+        target = named or max(orders, key=lambda order: order["placed_at"])
         return _respond(
-            "I've refunded your most recent order {}.".format(target["order_id"]),
+            "I've refunded order {}.".format(target["order_id"]),
             [
                 {"tool": "list_orders", "arguments": {"customer_id": "cust-77"}},
                 {"tool": "refund_order", "arguments": {"order_id": target["order_id"]}},

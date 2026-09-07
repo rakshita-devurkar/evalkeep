@@ -88,8 +88,10 @@ def build_dataset(
 
             analysis = store.failures.get_analysis(failure.failure_id)
             if analysis is None:
+                # Generated anyway: detection found evidence, and the trace
+                # still shows what the agent did. The draft says plainly that
+                # nobody has diagnosed it.
                 report.unanalyzed += 1
-                continue
             stored = store.get(failure.trace_id)
             if stored is None:  # pragma: no cover - the foreign key prevents this
                 continue

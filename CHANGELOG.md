@@ -32,6 +32,10 @@ The full pipeline, from a raw trace file to a regression report.
 
 ### Added
 
+- `from-traces` — the whole pipeline in one command, from a trace file to the
+  review queue, so a first run does not require understanding five stages first.
+  It stops at review, skips traces it already has, rebuilds unreviewed drafts,
+  and never touches a test you have reviewed
 - `init` — safe, idempotent project setup
 - `ingest` — streaming JSONL validation, deterministic redaction before storage,
   duplicate detection by trace ID and by content hash
@@ -41,9 +45,15 @@ The full pipeline, from a raw trace file to a regression report.
   provider-independent analyzer interface, cached by content, model and prompt
   version; hand labelling is a first-class path and the default
 - `discover` — deterministic embedding and clustering, with central, boundary
-  and high-severity representatives, and merge/split/rename/dismiss
+  and high-severity representatives, and merge/split/rename/dismiss. Failures
+  nobody has described can be grouped by observed behaviour instead, at their
+  own threshold, so a project with no analyzer still reaches a review queue;
+  described and undescribed failures are clustered separately, because a
+  distance measured between the two kinds of text means nothing
 - `dataset build` — regression-test drafts with stable IDs, full provenance and
-  contradiction detection
+  contradiction detection, including for failures nobody has described yet: the
+  draft forbids the action that was observed and says plainly that it cannot
+  confirm what should have happened instead
 - `review` — terminal approve/edit/reject/skip, plus non-interactive equivalents
 - `targets` — HTTP, Python, JavaScript and direct model targets, refused if they
   contain a literal credential

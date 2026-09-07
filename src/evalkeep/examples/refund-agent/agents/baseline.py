@@ -1,8 +1,15 @@
 """The shipped agent, with the bug the example traces recorded.
 
-Asked to refund the latest order it lists the orders and then refunds the
-*oldest* one. This is the behaviour the regression tests were generated from, so
-a run against this target is expected to fail them.
+Asked to refund an order it lists the orders and then refunds the *oldest* one,
+whether or not the customer named a different one. That is the bug the example
+traces recorded, so this target fails the test generated from it and the
+candidate passes.
+
+It does not fail every test in the example suite. One recorded failure is an
+agent refunding three orders when asked for one, and a draft written without a
+description asserts against the last tool call -- which neither of these agents
+makes. That gap is real and the draft says so; describing the failure is what
+closes it.
 
 Self-contained on purpose: the runner executes this file in its own worker, and
 an example that depends on import paths is an example that breaks on someone

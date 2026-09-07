@@ -41,6 +41,11 @@ NO_POSITIVE_EXPECTATION = (
     "No positive expectation: this test forbids the observed mistake but does "
     "not say what the agent should do instead. Add one before approving."
 )
+UNDESCRIBED_FAILURE = (
+    "This failure has not been described, so the test forbids the last action "
+    "the agent took without knowing whether that was the relevant mistake. "
+    "Describe it with 'evalkeep failures label' for a sharper test."
+)
 NO_TOOL_CALLS = (
     "The failure is about tool use but the trace records no tool calls, so no "
     "tool expectation could be derived."
@@ -50,7 +55,7 @@ NO_TOOL_CALLS = (
 def build_test(
     trace: NormalizedTrace,
     failure: Failure,
-    analysis: FailureAnalysis,
+    analysis: FailureAnalysis | None,
     *,
     cluster_id: str | None = None,
     cluster_label: str | None = None,
@@ -87,10 +92,10 @@ def build_test(
             cluster_id=cluster_id,
             cluster_label=cluster_label,
             representative_roles=list(representative_roles or []),
-            failure_type=analysis.failure_type.value,
-            severity=analysis.severity.value,
-            analyzer=analysis.analyzer,
-            analysis_summary=analysis.summary,
+            failure_type=analysis.failure_type.value if analysis else None,
+            severity=analysis.severity.value if analysis else None,
+            analyzer=analysis.analyzer if analysis else None,
+            analysis_summary=analysis.summary if analysis else None,
             evidence=[signal.kind.value for signal in failure.signals],
             generator_version=GENERATOR_VERSION,
         ),
@@ -98,12 +103,29 @@ def build_test(
 
 
 def derive_expectations(
-    trace: NormalizedTrace, analysis: FailureAnalysis
+    trace: NormalizedTrace, analysis: FailureAnalysis | None
 ) -> tuple[list[Expectation], list[str]]:
     """Read expectations off the trace, deterministic ones first."""
     calls = trace.tool_calls
     warnings: list[str] = []
     expectations: list[Expectation] = []
+
+    if analysis is None:
+        # Nobody has said what kind of failure this is, but detection found
+        # evidence that it *is* one, and the trace still shows exactly what the
+        # agent did. Forbidding that specific action needs no diagnosis -- it is
+        # the same forbidding half a described failure gets, minus the
+        # confidence that this was the relevant mistake.
+        warnings.append(UNDESCRIBED_FAILURE)
+        expectations += _forbid_observed_arguments(calls, warnings)
+        if not expectations:
+            expectations.append(
+                Expectation(
+                    type=ExpectationType.HUMAN_RUBRIC,
+                    value=_rubric_from_evidence(failure_evidence(trace)),
+                )
+            )
+        return expectations, warnings
 
     match analysis.failure_type:
         case FailureType.WRONG_TOOL_ARGUMENT:
@@ -128,6 +150,21 @@ def derive_expectations(
             )
         )
     return expectations, warnings
+
+
+def failure_evidence(trace: NormalizedTrace) -> str:
+    """What the trace itself says went wrong, for an undescribed failure."""
+    feedback = trace.outcome.feedback
+    if feedback is not None and feedback.comment:
+        return feedback.comment
+    for evaluation in trace.outcome.evaluations:
+        if evaluation.passed is False and evaluation.reason:
+            return evaluation.reason
+    return "the interaction was recorded as a failure"
+
+
+def _rubric_from_evidence(evidence: str) -> str:
+    return f"The agent must not repeat this failure: {evidence}"
 
 
 def _forbid_observed_arguments(

@@ -47,7 +47,7 @@ def analysis(
 
 
 def make_input(failure_id: str, summary: str, **kwargs: Any) -> ClusterInput:
-    return ClusterInput(failure_id=failure_id, analysis=analysis(summary, **kwargs))
+    return ClusterInput.from_analysis(failure_id, analysis(summary, **kwargs))
 
 
 def cosine(one: list[float], two: list[float]) -> float:
