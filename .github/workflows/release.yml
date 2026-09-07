@@ -54,7 +54,12 @@ jobs:
           uv venv /tmp/clean --python 3.12
           uv pip install --python /tmp/clean/bin/python dist/*.whl
           mkdir -p /tmp/smoke && cd /tmp/smoke
-          /tmp/clean/bin/evalkeep --version
+          # The wheel must report the tag, not just build under it.
+          reported="$(/tmp/clean/bin/evalkeep --version)"
+          if [ "$reported" != "${GITHUB_REF_NAME#v}" ]; then
+            echo "wheel reports $reported, tag is ${GITHUB_REF_NAME#v}" >&2
+            exit 1
+          fi
           /tmp/clean/bin/evalkeep demo .
           /tmp/clean/bin/evalkeep init .
           /tmp/clean/bin/evalkeep ingest refund-agent/traces.jsonl
