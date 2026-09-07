@@ -32,6 +32,9 @@ The full pipeline, from a raw trace file to a regression report.
 
 ### Added
 
+- A `tau-bench` example: 165 scored customer-service trajectories per model,
+  with replay targets, so the comparison in the README can be reproduced rather
+  than taken on trust
 - `from-traces` — the whole pipeline in one command, from a trace file to the
   review queue, so a first run does not require understanding five stages first.
   It stops at review, skips traces it already has, rebuilds unreviewed drafts,
