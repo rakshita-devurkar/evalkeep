@@ -1,7 +1,8 @@
 # Evalkeep
 
-**Turn real AI-agent failures into reviewed regression tests, and measure whether
-later versions fix or reintroduce them.**
+**Stop fixing the same agent bug twice.** Evalkeep turns production failures
+into a small, reviewed regression suite, and tells you whether a fix held — or
+that the evidence is too thin to say.
 
 Existing eval tools *execute* tests. The hard part is deciding which of
 thousands of production traces deserve permanent coverage. Evalkeep owns that

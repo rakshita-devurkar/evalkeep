@@ -1,4 +1,4 @@
-"""Evalkeep: turn real AI-agent failures into reviewed regression tests."""
+"""Evalkeep: turn production agent failures into a small, reviewed regression suite."""
 
 __version__ = "0.1.0"
 

@@ -1,7 +1,7 @@
 [project]
 name = "evalkeep"
 version = "0.1.0"
-description = "Turn real AI-agent failures into reviewed regression tests."
+description = "Turn production agent failures into a small, reviewed regression suite."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
