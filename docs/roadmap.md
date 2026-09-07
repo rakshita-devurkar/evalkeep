@@ -90,6 +90,37 @@ at export, silently, which is the worst place for it.
 Where a runner cannot express multi-turn input, the export should **refuse** the
 test with an explanation rather than quietly truncate it.
 
+### Clustering holds the whole distance matrix in memory
+
+**Today.** `average_linkage` builds a dense `n x n` cosine-distance matrix.
+Measured on 5,457 real failures (the GXCafe production ledger): 3.4 s wall
+clock, 723 MB peak RSS. The matrix alone is `n^2 * 8` bytes, so the curve is
+238 MB at 5.5k, 800 MB at 10k, and 3.2 GB at 20k — a project with a year of
+failures would not cluster on a laptop.
+
+**Why it matters.** Everything else in the pipeline is streaming or paged, so
+this is the single point that decides how much history a project can hold.
+Ingest of the same 8,562 records ran in 5.0 s at 58 MB.
+
+**Sketch.** Either cluster in blocks and merge, or switch to a nearest-neighbour
+graph and connected components, which never materializes the full matrix. Both
+change results at the margins, so whichever is chosen needs the same
+verified-against-the-original treatment `average_linkage` got when it replaced
+scikit-learn.
+
+### Reviewing a large queue has no triage order
+
+**Today.** `evalkeep review` walks drafts in insertion order. On the ledger run
+that is 450 drafts from 239 families, and nothing tells a reviewer which of
+them covers 1,096 failures and which covers one.
+
+**Why it matters.** The review gate is the one place a person's time is spent,
+and time spent on a singleton is time not spent on the family that is a fifth
+of the incidents.
+
+**Sketch.** Order by family size by default, and show the size and the
+representative's role in the prompt.
+
 ### Duplicate interactions are discarded — *addressed*
 
 **Resolved.** Every sighting is recorded in `trace_occurrences` while `traces`

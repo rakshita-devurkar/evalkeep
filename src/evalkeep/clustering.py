@@ -19,6 +19,7 @@ one ambiguous failure sitting between two families would merge both.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -27,6 +28,7 @@ import numpy as np
 from evalkeep.analysis import SEVERITY_ORDER, FailureAnalysis, Severity
 from evalkeep.clusters import Cluster, ClusterMember, MemberRole
 from evalkeep.config import ClusteringConfig
+from evalkeep.detectors import SignalKind
 from evalkeep.errors import CommandError
 
 
@@ -321,12 +323,56 @@ def derive_label(inputs: list[ClusterInput]) -> str:
     described = [item for item in inputs if item.described and item.failure_type]
     if not described:
         behaviours = [item.behaviour for item in inputs if item.behaviour]
-        if not behaviours:
-            return "undescribed failures"
-        return f"undescribed: {_most_common(iter(behaviours))}"
+        if behaviours:
+            return f"undescribed: {_most_common(iter(behaviours))}"
+        # No tool calls to name it after -- a ledger of outcomes rather than a
+        # trace of actions. Fall back to the words its members share, because a
+        # listing where every family reads "undescribed failures" tells a
+        # reviewer nothing about which one to open.
+        shared = _shared_terms(inputs)
+        return f"undescribed: {shared}" if shared else "undescribed failures"
     types = _most_common(item.failure_type or "" for item in described)
     components = _most_common(item.component or "" for item in described)
     return f"{types} in {components}"
+
+
+#: Present on every family, so they name none of them.
+_UNINFORMATIVE = frozenset({kind.value for kind in SignalKind} | {"none", "null", "true", "false"})
+
+
+def _shared_terms(inputs: list[ClusterInput], limit: int = 3) -> str:
+    """The words most of a family has in common, as a name for it.
+
+    Document frequency within the family, not raw count: a term repeated many
+    times in one long member says nothing about the family, while a term
+    present in most members is what they share. Terms carrying digits are
+    dropped -- "150" and "600" are what makes two instances of one contract
+    breach different, not what makes them the same.
+    """
+    documents = [frozenset(_terms(item.text)) for item in inputs]
+    documents = [document for document in documents if document]
+    if not documents:
+        return ""
+    counts: dict[str, int] = {}
+    for document in documents:
+        for term in document:
+            counts[term] = counts.get(term, 0) + 1
+    needed = max(1, (len(documents) + 1) // 2)
+    ranked = sorted(
+        ((term, n) for term, n in counts.items() if n >= needed),
+        key=lambda pair: (-pair[1], pair[0]),
+    )
+    return ", ".join(term for term, _ in ranked[:limit])
+
+
+def _terms(text: str) -> list[str]:
+    return [
+        token
+        for token in re.findall(r"\w+", text.lower())
+        if len(token) > 1
+        and not any(char.isdigit() for char in token)
+        and token not in _UNINFORMATIVE
+    ]
 
 
 def _most_common(values: Any) -> str:

@@ -310,6 +310,59 @@ class TestLabelling:
         assert "undescribed" in label
 
 
+class TestLabellingWithoutTools:
+    """A ledger of outcomes rather than a trace of actions: real production
+    exports carry a verdict and no tool calls, and every family then came out
+    named "undescribed failures"."""
+
+    def _family(self, evidence: list[str], count: int = 4) -> list[ClusterInput]:
+        return [
+            ClusterInput.from_observation(
+                f"f{i}", observation_text([], ["explicit_status"], evidence)
+            )
+            for i in range(count)
+        ]
+
+    def test_a_family_is_named_for_what_its_members_share(self) -> None:
+        label = derive_label(self._family(["output was too short", "output was too short"]))
+        assert "too" in label and "short" in label
+
+    def test_two_different_families_get_different_names(self) -> None:
+        """The whole point: 239 families all reading the same thing name none."""
+        short = derive_label(self._family(["the output was too short"]))
+        forbidden = derive_label(self._family(["forbidden content appeared"]))
+        assert short != forbidden
+
+    def test_measurements_are_left_out_of_the_name(self) -> None:
+        """`150` is what makes two instances differ, not what makes them a family."""
+        label = derive_label(
+            [
+                ClusterInput.from_observation(
+                    f"f{i}",
+                    observation_text([], ["explicit_status"], [f"too short ({i}00 of 150)"]),
+                )
+                for i in range(4)
+            ]
+        )
+        assert "150" not in label
+        assert "short" in label
+
+    def test_the_evidence_kind_never_becomes_the_name(self) -> None:
+        """It is on every family, so it distinguishes none."""
+        label = derive_label(self._family(["output was too short"]))
+        assert "explicit_status" not in label
+
+    def test_it_still_falls_back_when_there_is_nothing_to_share(self) -> None:
+        assert derive_label([ClusterInput.from_observation("f1", "")]) == "undescribed failures"
+
+    def test_a_tool_call_still_wins(self) -> None:
+        """Behaviour names a family better than its wording does."""
+        label = derive_label(
+            [ClusterInput.from_observation("f1", "too short", behaviour="refund_order")]
+        )
+        assert label == "undescribed: refund_order"
+
+
 class TestUndescribedGeneration:
     def test_the_observed_action_is_forbidden(self, initialized_project: Path) -> None:
         from_traces(EXAMPLE, project_root=initialized_project)

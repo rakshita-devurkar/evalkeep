@@ -659,6 +659,11 @@ def discover(
         False, "--force", help="Re-cluster even if it discards reviewer edits."
     ),
     no_cache: bool = typer.Option(False, "--no-cache", help="Ignore the embedding cache."),
+    group_undescribed: bool = typer.Option(
+        False,
+        "--group-undescribed",
+        help="Also group failures nobody has described, by observed behaviour.",
+    ),
 ) -> None:
     """Analyze, embed, cluster and select representatives."""
     report = _run(
@@ -667,6 +672,7 @@ def discover(
             analyze=not skip_analysis,
             force=force,
             use_cache=not no_cache,
+            group_undescribed=group_undescribed,
         )
     )
     _render_discovery(report)
