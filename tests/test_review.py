@@ -43,7 +43,7 @@ from evalkeep.review import (
     render_editable,
 )
 
-EXAMPLE = Path(__file__).resolve().parents[1] / "examples/refund-agent/traces.jsonl"
+EXAMPLE = Path(__file__).resolve().parents[1] / "src/evalkeep/examples/refund-agent/traces.jsonl"
 
 LABELS: dict[str, tuple[FailureType, Component, Severity, str]] = {
     "trace-1042": (

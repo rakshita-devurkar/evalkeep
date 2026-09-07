@@ -1,5 +1,8 @@
 # OpenTelemetry example
 
+> The data files ship **inside the package**, so a PyPI install has them too.
+> Write them out with `evalkeep demo .` — the commands below assume you have.
+
 `spans.json` is an OTLP JSON export of the same five interactions recorded in
 [`../refund-agent/traces.jsonl`](../refund-agent/traces.jsonl), using
 [OpenInference](https://github.com/Arize-ai/openinference) semantic conventions.
@@ -11,7 +14,7 @@ Reading all three side by side shows what each format can and cannot carry.
 > (correctly) refuse the second one.
 
 ```bash
-evalkeep ingest examples/opentelemetry/spans.json --format otlp
+evalkeep ingest opentelemetry/spans.json --format otlp
 evalkeep detect
 ```
 

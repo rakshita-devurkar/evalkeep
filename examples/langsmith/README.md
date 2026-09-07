@@ -1,5 +1,8 @@
 # LangSmith example
 
+> The data files ship **inside the package**, so a PyPI install has them too.
+> Write them out with `evalkeep demo .` — the commands below assume you have.
+
 `runs.jsonl` is a LangSmith export of the same five interactions recorded in
 [`../refund-agent/traces.jsonl`](../refund-agent/traces.jsonl), as one `Run`
 object per line.
@@ -10,7 +13,7 @@ object per line.
 > (correctly) refuse the second one.
 
 ```bash
-evalkeep ingest examples/langsmith/runs.jsonl --format langsmith
+evalkeep ingest langsmith/runs.jsonl --format langsmith
 evalkeep detect
 ```
 

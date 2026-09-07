@@ -40,7 +40,6 @@ dependencies = [
     "pydantic>=2.13.5",
     "pyyaml>=6.0.3",
     "rich>=15.0.0",
-    "scikit-learn>=1.9.0",
     "typer>=0.27.2",
 ]
 
@@ -75,6 +74,8 @@ dev = [
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
+# Shipped example agents stay plain on purpose; see the mypy note below.
+extend-exclude = ["src/evalkeep/examples/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
@@ -84,6 +85,10 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 "src/evalkeep/cli.py" = ["B008"]
 
 [tool.mypy]
+# Example agents are shipped fixtures, not library code. They are deliberately
+# plain and dependency-free so they run inside a runner's worker on any machine,
+# which means no annotations.
+exclude = ["src/evalkeep/examples/"]
 # Deliberately not pinned to a python_version: mypy should analyse for the
 # interpreter it is running on, and the CI matrix runs it on each supported
 # version. Pinning to 3.11 made mypy reject numpy's own 3.12+ stubs when the
@@ -95,11 +100,6 @@ warn_unreachable = true
 [[tool.mypy.overrides]]
 # Optional dependency: not installed in the default dev environment.
 module = ["anthropic.*"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-# scikit-learn and scipy ship no type information.
-module = ["sklearn.*", "scipy.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

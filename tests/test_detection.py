@@ -26,7 +26,7 @@ from evalkeep.failures import FailureOrigin, FailureStatus, failure_id_for
 from evalkeep.storage import TraceStore
 from evalkeep.trace import NormalizedTrace
 
-EXAMPLE = Path(__file__).resolve().parents[1] / "examples/refund-agent/traces.jsonl"
+EXAMPLE = Path(__file__).resolve().parents[1] / "src/evalkeep/examples/refund-agent/traces.jsonl"
 
 
 def trace_payload(trace_id: str, **overrides: Any) -> dict[str, Any]:

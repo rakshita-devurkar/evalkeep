@@ -541,7 +541,7 @@ deciding whether a release got worse.
 
 ### The example runs with no key and no network
 
-`examples/refund-agent/agents/` holds two deterministic agents: `baseline.py`
+the bundled `refund-agent/agents/` holds two deterministic agents: `baseline.py`
 reproduces the bug the example traces recorded (refunds the *oldest* order) and
 `candidate.py` fixes it. Against a suite of three approved tests:
 

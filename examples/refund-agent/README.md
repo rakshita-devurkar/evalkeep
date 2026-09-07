@@ -1,5 +1,8 @@
 # Refund-agent example
 
+> The data files ship **inside the package**, so a PyPI install has them too.
+> Write them out with `evalkeep demo .` — the commands below assume you have.
+
 A deterministic, synthetic dataset for a shopping agent that handles refunds.
 It requires no API key and no network, and it is the dataset the end-to-end
 acceptance test runs against.
@@ -21,7 +24,7 @@ pair to group and a distinct case to keep separate.
 Validate it:
 
 ```bash
-uv run evalkeep ingest examples/refund-agent/traces.jsonl --validate-only
+uv run evalkeep ingest refund-agent/traces.jsonl --validate-only
 ```
 
 No real customer data appears here. `shopper@example.com` is a reserved example

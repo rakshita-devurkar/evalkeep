@@ -366,7 +366,9 @@ class TestRegistry:
 
 class TestBundledExample:
     def test_the_example_export_reads_cleanly(self) -> None:
-        example = Path(__file__).resolve().parents[1] / "examples/opentelemetry/spans.json"
+        example = (
+            Path(__file__).resolve().parents[1] / "src/evalkeep/examples/opentelemetry/spans.json"
+        )
         records = list(OtlpAdapter().read(example))
         assert records, "the bundled example should contain traces"
         assert all(record.ok for record in records), [

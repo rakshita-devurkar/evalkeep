@@ -21,7 +21,7 @@ MINIMAL: dict[str, Any] = {
     "outcome": {"status": "failure"},
 }
 
-EXAMPLE = Path(__file__).resolve().parents[1] / "examples/refund-agent/traces.jsonl"
+EXAMPLE = Path(__file__).resolve().parents[1] / "src/evalkeep/examples/refund-agent/traces.jsonl"
 
 
 def write_traces(path: Path, *lines: str) -> Path:

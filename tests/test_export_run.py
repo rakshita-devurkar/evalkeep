@@ -32,8 +32,8 @@ from evalkeep.runs import ErrorKind, Outcome, suite_hash
 from evalkeep.targets import Target, TargetKind
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLE = ROOT / "examples/refund-agent/traces.jsonl"
-AGENTS = ROOT / "examples/refund-agent/agents"
+EXAMPLE = ROOT / "src/evalkeep/examples/refund-agent/traces.jsonl"
+AGENTS = ROOT / "src/evalkeep/examples/refund-agent/agents"
 
 NODE = shutil.which("node")
 E2E = os.environ.get("EVALKEEP_E2E") == "1"

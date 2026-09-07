@@ -21,9 +21,9 @@ from evalkeep.trace import NormalizedTrace
 ROOT = Path(__file__).resolve().parents[1]
 
 SOURCES = {
-    "jsonl": ROOT / "examples/refund-agent/traces.jsonl",
-    "otlp": ROOT / "examples/opentelemetry/spans.json",
-    "langsmith": ROOT / "examples/langsmith/runs.jsonl",
+    "jsonl": ROOT / "src/evalkeep/examples/refund-agent/traces.jsonl",
+    "otlp": ROOT / "src/evalkeep/examples/opentelemetry/spans.json",
+    "langsmith": ROOT / "src/evalkeep/examples/langsmith/runs.jsonl",
 }
 
 #: Tool calls per interaction, in the order the examples record them.

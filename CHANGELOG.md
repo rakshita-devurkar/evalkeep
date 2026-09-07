@@ -26,7 +26,9 @@ invalidates the right caches rather than silently mixing results.
 
 ## [Unreleased]
 
-The full pipeline, built from a raw trace file to a regression report.
+## [0.1.0] - 2026-09-06
+
+The full pipeline, from a raw trace file to a regression report.
 
 ### Added
 
@@ -52,4 +54,26 @@ The full pipeline, built from a raw trace file to a regression report.
   separately, McNemar's exact test, and confidence intervals only when the
   sample supports one
 - `baseline promote` — an explicit, recorded decision, never automatic
+- `demo` — writes the bundled examples out, so a PyPI install has them too
+- Trace adapters for OpenTelemetry (OpenInference conventions, `gen_ai.*`
+  fallback) and LangSmith, both reading exported files rather than calling an
+  API, so no credentials are needed and no vendor tier is required
+- `run --repetitions N` — repeated execution with per-case verdicts and Wilson
+  intervals, so one lucky pass is not reported as a fix
+- Recorded fixtures published to the target at run time, so a replay reproduces
+  the conditions the failure was recorded under
+- Every occurrence of an interaction is kept, preserving frequency, date range
+  and affected agent versions
+- `redaction.pseudonymize_identifiers` — per-project salted tokens for
+  identifiers that may themselves carry customer data
 - A deterministic refund-agent example that runs with no API key and no network
+
+### Notes
+
+- Installing pulls in only six runtime dependencies; clustering and the exact
+  binomial test are implemented directly rather than via SciPy and
+  scikit-learn, which were 119 MB of install for two function calls.
+- The LangSmith adapter is written against the documented `Run` schema and has
+  not been exercised against a live account.
+
+[0.1.0]: https://github.com/rakshita-devurkar/evalkeep/releases/tag/v0.1.0
