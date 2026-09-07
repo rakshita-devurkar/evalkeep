@@ -26,7 +26,7 @@ invalidates the right caches rather than silently mixing results.
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-09-06
+## [0.1.0] - 2026-09-07
 
 The full pipeline, from a raw trace file to a regression report.
 
