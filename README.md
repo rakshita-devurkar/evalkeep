@@ -1,5 +1,9 @@
 # Evalkeep
 
+[![PyPI](https://img.shields.io/pypi/v/evalkeep)](https://pypi.org/project/evalkeep/)
+[![Python](https://img.shields.io/pypi/pyversions/evalkeep)](https://pypi.org/project/evalkeep/)
+[![License](https://img.shields.io/pypi/l/evalkeep)](LICENSE)
+
 **Stop fixing the same agent bug twice.** Evalkeep turns production failures
 into a small, reviewed regression suite, and tells you whether a fix held — or
 that the evidence is too thin to say.
@@ -20,20 +24,21 @@ baseline against candidate. It sits upstream of your eval runner, not next to it
 ## Install
 
 ```bash
-git clone https://github.com/rakshita-devurkar/evalkeep && cd evalkeep
-uv sync
+uv tool install evalkeep     # or: pipx install evalkeep, pip install evalkeep
 ```
 
-Node.js is needed only for `evalkeep run`, which shells out to Promptfoo.
+Python 3.11+. Node.js is needed only for `evalkeep run`, which shells out to
+Promptfoo. The examples ship inside the package, so everything below works from
+a fresh install with no clone.
 
 ## Quick start
 
 One command takes a trace file to a review queue. Offline, no API key:
 
 ```bash
-uv run evalkeep demo .
-uv run evalkeep init
-uv run evalkeep from-traces refund-agent/traces.jsonl
+evalkeep demo .
+evalkeep init
+evalkeep from-traces refund-agent/traces.jsonl
 ```
 
 ```
@@ -61,7 +66,7 @@ and an independent verdict — the two halves a regression suite needs.
 
 ```bash
 python tau-bench/prepare.py                      # ~8 MB, two models
-uv run evalkeep from-traces tau-bench/Qwen3-235B-A22B-FP8.traces.jsonl
+evalkeep from-traces tau-bench/Qwen3-235B-A22B-FP8.traces.jsonl
 ```
 
 ```
@@ -76,14 +81,14 @@ Build a test per failure, approve them, and run two recorded models against the
 suite one of them produced:
 
 ```bash
-uv run evalkeep dataset build --all
-uv run evalkeep review
-uv run evalkeep targets add baseline  --type python --function call_api \
+evalkeep dataset build --all
+evalkeep review
+evalkeep targets add baseline  --type python --function call_api \
   --path tau-bench/replay_Qwen3_235B_A22B_FP8.py
-uv run evalkeep targets add candidate --type python --function call_api \
+evalkeep targets add candidate --type python --function call_api \
   --path tau-bench/replay_claude_4_5_sonnet_thinking_off.py
-uv run evalkeep run --target baseline && uv run evalkeep run --target candidate
-uv run evalkeep compare
+evalkeep run --target baseline && evalkeep run --target candidate
+evalkeep compare
 ```
 
 ```
@@ -111,11 +116,11 @@ every rate rather than counted as a failure.
 evidence, and you will want them separately once you are tuning a suite:
 
 ```bash
-uv run evalkeep ingest traces.jsonl   # validate, redact, store
-uv run evalkeep detect                # evidence-backed failures
-uv run evalkeep analyze               # describe them (or: failures label)
-uv run evalkeep discover              # embed, cluster, pick representatives
-uv run evalkeep dataset build         # draft a test per representative
+evalkeep ingest traces.jsonl   # validate, redact, store
+evalkeep detect                # evidence-backed failures
+evalkeep analyze               # describe them (or: failures label)
+evalkeep discover              # embed, cluster, pick representatives
+evalkeep dataset build         # draft a test per representative
 ```
 
 Re-running `from-traces` is safe: it skips traces it already has and rebuilds
@@ -124,13 +129,15 @@ drafts, but never touches a test you have reviewed.
 ## Bring your own traces
 
 ```bash
-uv run evalkeep ingest spans.json --format otlp        # OpenTelemetry / OpenInference
-uv run evalkeep ingest runs.jsonl --format langsmith   # LangSmith
+evalkeep ingest opentelemetry/spans.json --format otlp   # OpenTelemetry / OpenInference
+evalkeep ingest langsmith/runs.jsonl --format langsmith  # LangSmith
 ```
 
-Adapters read files, never APIs — no credentials, any vendor tier. OpenTelemetry
-covers the most ground, since Langfuse, Braintrust and Phoenix all ingest OTLP.
-`evalkeep demo` writes an example export in each format.
+Those paths are what `evalkeep demo` writes — the same five interactions
+exported from each tool, so you can see what an adapter does before pointing one
+at your own data. Adapters read files, never APIs: no credentials, any vendor
+tier. OpenTelemetry covers the most ground, since Langfuse, Braintrust and
+Phoenix all ingest OTLP.
 
 ## Commands
 
@@ -167,6 +174,7 @@ covers the most ground, since Langfuse, Braintrust and Phoenix all ingest OTLP.
 [Changelog](CHANGELOG.md)
 
 ```bash
+git clone https://github.com/rakshita-devurkar/evalkeep && cd evalkeep
 uv sync && uv run pytest              # 985 tests
 uv run ruff check . && uv run mypy    # lint and strict types
 ```
@@ -175,9 +183,10 @@ uv run ruff check . && uv run mypy    # lint and strict types
 Exit codes: `0` success, `1` ran but some records were rejected, `2` could not
 run.
 
-0.1 is feature-complete and not yet released to PyPI. Multi-turn replay and
-longitudinal failure history are still open; see the
-[roadmap](docs/roadmap.md).
+0.1 is feature-complete. Multi-turn replay, longitudinal failure history, and
+clustering that does not hold the whole distance matrix in memory are still
+open; see the [roadmap](docs/roadmap.md). Pre-1.0, minor versions may break the
+CLI and the on-disk layout — see the [changelog](CHANGELOG.md).
 
 ## License
 
