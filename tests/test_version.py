@@ -21,7 +21,9 @@ PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
 
 
 def packaged_version() -> str:
-    return tomllib.loads(PYPROJECT.read_text())["project"]["version"]
+    version = tomllib.loads(PYPROJECT.read_text())["project"]["version"]
+    assert isinstance(version, str)
+    return version
 
 
 class TestVersion:

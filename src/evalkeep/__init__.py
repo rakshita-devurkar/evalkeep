@@ -1,6 +1,7 @@
 """Evalkeep: turn production agent failures into a small, reviewed regression suite."""
 
-from importlib.metadata import PackageNotFoundError, version as _installed_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _installed_version
 
 try:
     #: Read from installed metadata rather than written here, so it cannot drift
