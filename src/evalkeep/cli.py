@@ -81,7 +81,7 @@ T = TypeVar("T")
 
 app = typer.Typer(
     name="evalkeep",
-    help="Turn real AI-agent failures into reviewed regression tests.",
+    help="Turn production agent failures into a small, reviewed regression suite.",
     no_args_is_help=True,
     add_completion=False,
 )
