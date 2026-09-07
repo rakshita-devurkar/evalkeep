@@ -26,6 +26,24 @@ invalidates the right caches rather than silently mixing results.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-07
+
+### Fixed
+
+- The description on PyPI told you to clone the repository and run
+  `uv run evalkeep`, because PyPI renders the README from the snapshot a release
+  was built from and 0.1.0 was built before there was anything to install. Worse
+  than stale: someone who installed the package and then followed its own
+  instructions got errors. The README now installs from PyPI and calls
+  `evalkeep` directly.
+- `__version__` was written out by hand beside the version in pyproject.toml.
+  The release check compared the tag against pyproject and nothing compared the
+  two to each other, so 0.1.1 came within a commit of shipping a wheel that
+  reported 0.1.0. It is now read from installed metadata, a test asserts the two
+  agree, and the release refuses to publish a wheel whose `--version` is not the
+  tag.
+
+
 ## [0.1.0] - 2026-09-07
 
 The full pipeline, from a raw trace file to a regression report.
