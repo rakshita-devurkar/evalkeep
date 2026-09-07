@@ -31,7 +31,9 @@ from evalkeep.commands.review_cmd import approve_test
 from evalkeep.config import ClusteringConfig
 from evalkeep.embeddings import HashingEmbedder
 from evalkeep.errors import CommandError, ExitCode
+from evalkeep.generation import derive_expectations
 from evalkeep.regression import ExpectationType, ReviewStatus
+from evalkeep.trace import NormalizedTrace
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "src/evalkeep/examples/refund-agent/traces.jsonl"
 
@@ -310,6 +312,59 @@ class TestLabelling:
         assert "undescribed" in label
 
 
+class TestLabellingWithoutTools:
+    """A ledger of outcomes rather than a trace of actions: real production
+    exports carry a verdict and no tool calls, and every family then came out
+    named "undescribed failures"."""
+
+    def _family(self, evidence: list[str], count: int = 4) -> list[ClusterInput]:
+        return [
+            ClusterInput.from_observation(
+                f"f{i}", observation_text([], ["explicit_status"], evidence)
+            )
+            for i in range(count)
+        ]
+
+    def test_a_family_is_named_for_what_its_members_share(self) -> None:
+        label = derive_label(self._family(["output was too short", "output was too short"]))
+        assert "too" in label and "short" in label
+
+    def test_two_different_families_get_different_names(self) -> None:
+        """The whole point: 239 families all reading the same thing name none."""
+        short = derive_label(self._family(["the output was too short"]))
+        forbidden = derive_label(self._family(["forbidden content appeared"]))
+        assert short != forbidden
+
+    def test_measurements_are_left_out_of_the_name(self) -> None:
+        """`150` is what makes two instances differ, not what makes them a family."""
+        label = derive_label(
+            [
+                ClusterInput.from_observation(
+                    f"f{i}",
+                    observation_text([], ["explicit_status"], [f"too short ({i}00 of 150)"]),
+                )
+                for i in range(4)
+            ]
+        )
+        assert "150" not in label
+        assert "short" in label
+
+    def test_the_evidence_kind_never_becomes_the_name(self) -> None:
+        """It is on every family, so it distinguishes none."""
+        label = derive_label(self._family(["output was too short"]))
+        assert "explicit_status" not in label
+
+    def test_it_still_falls_back_when_there_is_nothing_to_share(self) -> None:
+        assert derive_label([ClusterInput.from_observation("f1", "")]) == "undescribed failures"
+
+    def test_a_tool_call_still_wins(self) -> None:
+        """Behaviour names a family better than its wording does."""
+        label = derive_label(
+            [ClusterInput.from_observation("f1", "too short", behaviour="refund_order")]
+        )
+        assert label == "undescribed: refund_order"
+
+
 class TestUndescribedGeneration:
     def test_the_observed_action_is_forbidden(self, initialized_project: Path) -> None:
         from_traces(EXAMPLE, project_root=initialized_project)
@@ -327,6 +382,56 @@ class TestUndescribedGeneration:
         test = list_tests(project_root=initialized_project).tests[0]
         assert test.provenance.failure_type is None
         assert test.provenance.analyzer is None
+
+
+class TestProseArguments:
+    """Found on real tau-bench trajectories: an agent that gives up and calls
+    `transfer_to_human_agents(summary="<300 words>")`. Forbidding that exact
+    summary is a check no rewording can fail."""
+
+    def _trace(self, arguments: dict[str, object]) -> NormalizedTrace:
+        return NormalizedTrace.model_validate(
+            {
+                "trace_id": "t1",
+                "input": {"text": "help me with my delayed flight"},
+                "events": [
+                    {
+                        "event_id": "e1",
+                        "type": "tool_call",
+                        "tool": "escalate",
+                        "arguments": arguments,
+                    }
+                ],
+                "outcome": {"status": "failure"},
+            }
+        )
+
+    def test_a_free_text_argument_is_not_asserted_on(self) -> None:
+        prose = "The user is upset about a delayed flight and wants compensation " * 3
+        expectations, _ = derive_expectations(self._trace({"summary": prose}), None)
+        assert not any(e.type is ExpectationType.TOOL_ARGUMENT_NOT_EQUALS for e in expectations)
+
+    def test_the_call_itself_is_forbidden_instead(self) -> None:
+        """Making the call at all is the mistake, not how it was worded."""
+        prose = "The user is upset about a delayed flight and wants compensation " * 3
+        expectations, warnings = derive_expectations(self._trace({"summary": prose}), None)
+        assert [e.type for e in expectations] == [ExpectationType.TOOL_NOT_CALLED]
+        assert any("forbids the call itself" in w for w in warnings)
+
+    def test_identifiers_are_still_asserted_on(self) -> None:
+        """The fix must not throw away the arguments that do pin a mistake down."""
+        expectations, _ = derive_expectations(
+            self._trace({"order_id": "#W8528674", "reason": "no longer needed"}), None
+        )
+        paths = {e.path for e in expectations}
+        assert "order_id" in paths
+
+    def test_a_mixed_call_keeps_only_the_specific_argument(self) -> None:
+        prose = "The customer explained at length that the item arrived damaged " * 3
+        expectations, _ = derive_expectations(
+            self._trace({"order_id": "#W1", "notes": prose}), None
+        )
+        assert {e.path for e in expectations} == {"order_id"}
 
 
 class TestCli:

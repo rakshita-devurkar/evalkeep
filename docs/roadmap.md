@@ -90,6 +90,71 @@ at export, silently, which is the worst place for it.
 Where a runner cannot express multi-turn input, the export should **refuse** the
 test with an explanation rather than quietly truncate it.
 
+### An exported test carries a redacted prompt
+
+**Today.** Redaction runs before storage, so a test's input is the redacted
+text, not what the recorded agent saw. Measured on 165 tau-bench trajectories:
+27 inputs (16%) differ, because the task instruction contains an email address.
+
+**Why it matters.** Any target that recognizes a request -- a replay harness, a
+fixture lookup, a cache -- is handed a prompt the original system never saw and
+cannot match it. Worse, the failure is silent in the direction that flatters
+the result: a target that returns nothing passes every test built only from
+"must not do X", so a total lookup failure was scored as 12 passes rather than
+12 errors, and the measured improvement moved by 4 points once it was fixed.
+
+**Sketch.** Record the pre-redaction content hash of the input alongside the
+test so a target can key on identity rather than text, and consider failing a
+run where a target returns nothing for every case rather than passing it.
+
+### A test that only forbids a mistake passes against an agent that does nothing
+
+**Today.** `dataset build` warns "No positive expectation", and
+`from-traces` counts those drafts separately. Nothing stops such a test from
+being approved and run.
+
+**Why it matters.** Every negative expectation -- `tool_not_called`,
+`tool_argument_not_equals`, `output_not_contains` -- is satisfied by an empty
+response. A suite made of them reports a rising pass rate as a target degrades
+toward returning nothing, which is the exact opposite of what a regression
+suite is for. This is not hypothetical: it happened during the tau-bench run
+above, and the numbers looked plausible.
+
+**Sketch.** Refuse to approve a test with no positive expectation without an
+explicit override, or have the runner mark a case inconclusive when the target
+produced no output at all.
+
+### Clustering holds the whole distance matrix in memory
+
+**Today.** `average_linkage` builds a dense `n x n` cosine-distance matrix.
+Measured on 5,457 real failures (the GXCafe production ledger): 3.4 s wall
+clock, 723 MB peak RSS. The matrix alone is `n^2 * 8` bytes, so the curve is
+238 MB at 5.5k, 800 MB at 10k, and 3.2 GB at 20k — a project with a year of
+failures would not cluster on a laptop.
+
+**Why it matters.** Everything else in the pipeline is streaming or paged, so
+this is the single point that decides how much history a project can hold.
+Ingest of the same 8,562 records ran in 5.0 s at 58 MB.
+
+**Sketch.** Either cluster in blocks and merge, or switch to a nearest-neighbour
+graph and connected components, which never materializes the full matrix. Both
+change results at the margins, so whichever is chosen needs the same
+verified-against-the-original treatment `average_linkage` got when it replaced
+scikit-learn.
+
+### Reviewing a large queue has no triage order
+
+**Today.** `evalkeep review` walks drafts in insertion order. On the ledger run
+that is 450 drafts from 239 families, and nothing tells a reviewer which of
+them covers 1,096 failures and which covers one.
+
+**Why it matters.** The review gate is the one place a person's time is spent,
+and time spent on a singleton is time not spent on the family that is a fifth
+of the incidents.
+
+**Sketch.** Order by family size by default, and show the size and the
+representative's role in the prompt.
+
 ### Duplicate interactions are discarded — *addressed*
 
 **Resolved.** Every sighting is recorded in `trace_occurrences` while `traces`
